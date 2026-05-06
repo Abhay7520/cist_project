@@ -1,0 +1,8 @@
+{
+    "system_name": "TGSPDCL Main Hub",
+    "region_code": "HYD-CENTRAL-01",
+    "sync_interval": 5,
+    "load_threshold": 90,
+    "efficiency_threshold": 92,
+    "theme": "glass"
+}
