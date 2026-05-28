@@ -12,6 +12,7 @@ import {
   ResponsiveContainer,
   Legend
 } from 'recharts'
+import { API_URL } from '@/lib/api-config'
 
 interface DataPoint {
   time: string
@@ -44,7 +45,7 @@ export function LiveChart() {
   useEffect(() => {
     const fetchTimeseries = async () => {
       try {
-        const res = await fetch('http://127.0.0.1:8000/dashboard-timeseries')
+        const res = await fetch(`${API_URL}/dashboard-timeseries`)
         if (res.ok) {
           const json = await res.json()
           if (!json.error && Array.isArray(json) && json.length > 0) {

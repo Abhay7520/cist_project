@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { Sun, Wind, Droplets, Leaf, TrendingUp, Cloud, Zap, Battery } from 'lucide-react'
+import { API_URL } from '@/lib/api-config'
 import { 
   AreaChart, 
   Area, 
@@ -119,7 +120,7 @@ export default function RenewablesPage() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const res = await fetch('http://127.0.0.1:8000/renewables-data')
+        const res = await fetch(`${API_URL}/renewables-data`)
         const data = await res.json()
         if (!data.error) {
           setTotalRenewable(data.total_renewable)

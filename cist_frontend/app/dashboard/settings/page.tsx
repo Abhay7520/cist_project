@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from 'react'
+import { API_URL } from '@/lib/api-config'
 import { motion } from 'framer-motion'
 import { 
   Settings, 
@@ -41,7 +42,7 @@ export default function SettingsPage() {
   useEffect(() => {
     const fetchSettings = async () => {
       try {
-        const res = await fetch('http://127.0.0.1:8000/settings')
+        const res = await fetch(`${API_URL}/settings`)
         if (res.ok) {
           const data = await res.json()
           setSettings(data)
@@ -56,7 +57,7 @@ export default function SettingsPage() {
   const handleSave = async (updatedSettings = settings) => {
     setIsSaving(true)
     try {
-      const res = await fetch('http://127.0.0.1:8000/settings', {
+      const res = await fetch(`${API_URL}/settings`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updatedSettings)

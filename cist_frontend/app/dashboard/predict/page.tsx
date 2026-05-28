@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Calculator, Zap, Thermometer, Droplets, MapPin, Building, Users, Calendar, Clock, ArrowRight, Loader2, Info, Sun, Wind } from 'lucide-react'
+import { API_URL } from '@/lib/api-config'
 
 export default function PredictPage() {
   const [isLoading, setIsLoading] = useState(false)
@@ -54,7 +55,7 @@ export default function PredictPage() {
   useEffect(() => {
     const fetchOptions = async () => {
       try {
-        const res = await fetch('http://127.0.0.1:8000/form-options')
+        const res = await fetch(`${API_URL}/form-options`)
         if (!res.ok) {
           return
         }
@@ -89,7 +90,7 @@ export default function PredictPage() {
     setResult(null)
 
     try {
-      const url = new URL("http://127.0.0.1:8000/predict")
+      const url = new URL(`${API_URL}/predict`)
       Object.entries(formData).forEach(([key, value]) => {
         url.searchParams.append(key, value)
       })

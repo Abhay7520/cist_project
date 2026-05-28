@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { Bell, AlertTriangle, AlertCircle, Info, X } from 'lucide-react'
 import Link from 'next/link'
+import { API_URL } from '@/lib/api-config'
 
 interface Alert {
   id: number
@@ -67,7 +68,7 @@ export function AlertsWidget() {
   useEffect(() => {
     const fetchAlerts = async () => {
       try {
-        const res = await fetch('http://127.0.0.1:8000/alerts')
+        const res = await fetch(`${API_URL}/alerts`)
         if (res.ok) {
           const json = await res.json()
           if (!json.error && Array.isArray(json.alerts)) {

@@ -24,6 +24,7 @@ import {
   LineChart as RechartsLineChart,
   Line
 } from 'recharts'
+import { API_URL } from '@/lib/api-config'
 
 type ReportType = 'demand' | 'performance' | 'renewable'
 type DateRange = 'week' | 'month' | 'quarter' | 'year'
@@ -135,7 +136,7 @@ export default function ReportsPage() {
   useEffect(() => {
     const fetchOptions = async () => {
       try {
-        const res = await fetch('http://127.0.0.1:8000/form-options')
+        const res = await fetch(`${API_URL}/form-options`)
         if (res.ok) {
           const data = await res.json()
           if (data.circle) {
@@ -177,7 +178,7 @@ export default function ReportsPage() {
 
     // Fetch real data from backend
     try {
-      const url = new URL('http://127.0.0.1:8000/report-data')
+      const url = new URL(`${API_URL}/report-data`)
       url.searchParams.append('report_type', selectedReport)
       url.searchParams.append('circle', region)
       url.searchParams.append('section', substation)
@@ -554,7 +555,7 @@ export default function ReportsPage() {
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
                     onClick={() => {
-                      const url = new URL('http://127.0.0.1:8000/download-csv')
+                      const url = new URL(`${API_URL}/download-csv`)
                       url.searchParams.append('circle', region)
                       url.searchParams.append('section', substation)
                       window.open(url.toString(), '_blank')

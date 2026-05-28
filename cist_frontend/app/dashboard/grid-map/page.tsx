@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { API_URL } from '@/lib/api-config'
 import { Map, Zap, AlertTriangle, CheckCircle2, X, Activity, Gauge, ThermometerSun, Loader2 } from 'lucide-react'
 
 interface Substation {
@@ -25,6 +26,7 @@ const statusConfig = {
 }
 
 export default function GridMapPage() {
+  
   const [substations, setSubstations] = useState<Substation[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [selectedStation, setSelectedStation] = useState<Substation | null>(null)
@@ -33,7 +35,7 @@ export default function GridMapPage() {
   useEffect(() => {
     const fetchSubstations = async () => {
       try {
-        const res = await fetch('http://127.0.0.1:8000/sections-data')
+        const res = await fetch(`${API_URL}/sections-data`)
         if (!res.ok) throw new Error('Failed to fetch')
         const data = await res.json()
         setSubstations(data)

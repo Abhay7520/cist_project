@@ -20,6 +20,7 @@ import {
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { ParticleBackground } from '@/components/particle-background'
+import { API_URL } from '@/lib/api-config'
 
 const navItems = [
   { icon: LayoutDashboard, label: 'Dashboard', href: '/dashboard' },
@@ -47,7 +48,7 @@ export default function DashboardLayout({
     // Fetch theme from settings
     const fetchTheme = async () => {
       try {
-        const res = await fetch('http://127.0.0.1:8000/settings')
+        const res = await fetch(`${API_URL}/settings`)
         if (res.ok) {
           const data = await res.json()
           setTheme(data.theme || 'glass')

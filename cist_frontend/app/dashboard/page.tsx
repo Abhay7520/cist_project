@@ -8,6 +8,7 @@ import { LiveChart } from '@/components/dashboard/live-chart'
 import { GridStatus } from '@/components/dashboard/grid-status'
 import { AIInsightsPanel } from '@/components/dashboard/ai-insights-panel'
 import { AlertsWidget } from '@/components/dashboard/alerts-widget'
+import { API_URL } from '@/lib/api-config'
 
 export default function DashboardPage() {
   const [stats, setStats] = useState({
@@ -31,7 +32,7 @@ export default function DashboardPage() {
 
     const fetchDashboardSummary = async () => {
       try {
-        const res = await fetch("http://127.0.0.1:8000/dashboard-summary")
+        const res = await fetch(`${API_URL}/dashboard-summary`)
         if (res.ok) {
           const data = await res.json()
           if (!data.error) {

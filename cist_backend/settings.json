@@ -4,5 +4,5 @@
     "sync_interval": 5,
     "load_threshold": 90,
     "efficiency_threshold": 92,
-    "theme": "glass"
+    "theme": "minimal"
 }
