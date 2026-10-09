@@ -8,6 +8,7 @@ import { LiveChart } from '@/components/dashboard/live-chart'
 import { GridStatus } from '@/components/dashboard/grid-status'
 import { AIInsightsPanel } from '@/components/dashboard/ai-insights-panel'
 import { AlertsWidget } from '@/components/dashboard/alerts-widget'
+import { WeatherIntelligenceCard } from '@/components/dashboard/weather-intelligence-card'
 import { API_URL } from '@/lib/api-config'
 
 export default function DashboardPage() {
@@ -146,8 +147,9 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Bottom Section */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {/* Weather Intelligence & AI Panel Section */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <WeatherIntelligenceCard selectedArea={location !== "Loading..." ? location : "Hyderabad"} />
         <AIInsightsPanel />
         <AlertsWidget />
       </div>

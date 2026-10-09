@@ -4,7 +4,8 @@ import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { 
   Bell, AlertTriangle, AlertCircle, Info, CheckCircle2, X, Clock, MapPin, 
-  Volume2, VolumeX, ChevronDown, Wrench, Eye, CheckCheck, History, Zap
+  Volume2, VolumeX, ChevronDown, Wrench, Eye, CheckCheck, History, Zap,
+  Thermometer, CloudSun
 } from 'lucide-react'
 
 type AlertStatus = 'working' | 'acknowledged' | 'resolved'
@@ -25,6 +26,7 @@ interface Alert {
   timestamp: Date
   status: AlertStatus
   statusHistory: StatusUpdate[]
+  isWeatherAlert?: boolean
 }
 
 const generateAlerts = (): Alert[] => [
@@ -41,6 +43,17 @@ const generateAlerts = (): Alert[] => [
   {
     id: 2,
     severity: 'critical',
+    title: 'High Temperature – Increased Demand Risk',
+    description: 'Ambient zone temp reached 39°C. Cooling load surge is putting critical stress on transformer relays.',
+    location: 'Hyderabad Central',
+    timestamp: new Date(Date.now() - 7 * 60 * 1000),
+    status: 'working',
+    statusHistory: [{ status: 'working', timestamp: new Date(Date.now() - 7 * 60 * 1000) }],
+    isWeatherAlert: true
+  },
+  {
+    id: 3,
+    severity: 'critical',
     title: 'Power Surge Detected',
     description: 'Abnormal voltage spike detected in main transformer. Protection relay activated.',
     location: 'Substation S2 - Industrial Zone A',
@@ -49,7 +62,18 @@ const generateAlerts = (): Alert[] => [
     statusHistory: [{ status: 'working', timestamp: new Date(Date.now() - 8 * 60 * 1000) }]
   },
   {
-    id: 3,
+    id: 4,
+    severity: 'warning',
+    title: 'Extreme Weather – Potential Load Increase',
+    description: 'Heatwave warning in progress. Regional cooling demand projected to remain +18.5% above baseline.',
+    location: 'Cyberabad IT Hub',
+    timestamp: new Date(Date.now() - 14 * 60 * 1000),
+    status: 'working',
+    statusHistory: [{ status: 'working', timestamp: new Date(Date.now() - 14 * 60 * 1000) }],
+    isWeatherAlert: true
+  },
+  {
+    id: 5,
     severity: 'warning',
     title: 'High Temperature Warning',
     description: 'Transformer temperature at 78°C, approaching critical threshold of 85°C.',
@@ -62,7 +86,21 @@ const generateAlerts = (): Alert[] => [
     ]
   },
   {
-    id: 4,
+    id: 6,
+    severity: 'warning',
+    title: 'High Demand Forecast – Prepare Additional Capacity',
+    description: 'AI Weather Forecast model predicts peak demand surge exceeding 3,400 MW between 5:00 PM and 8:00 PM.',
+    location: 'Hitech City Corridor',
+    timestamp: new Date(Date.now() - 32 * 60 * 1000),
+    status: 'acknowledged',
+    statusHistory: [
+      { status: 'working', timestamp: new Date(Date.now() - 32 * 60 * 1000) },
+      { status: 'acknowledged', timestamp: new Date(Date.now() - 20 * 60 * 1000), user: 'Grid AI Dispatcher' }
+    ],
+    isWeatherAlert: true
+  },
+  {
+    id: 7,
     severity: 'warning',
     title: 'Load Imbalance Detected',
     description: 'Phase imbalance of 12% detected on three-phase supply. Monitoring required.',
@@ -72,7 +110,7 @@ const generateAlerts = (): Alert[] => [
     statusHistory: [{ status: 'working', timestamp: new Date(Date.now() - 45 * 60 * 1000) }]
   },
   {
-    id: 5,
+    id: 8,
     severity: 'normal',
     title: 'Scheduled Maintenance Reminder',
     description: 'Planned maintenance window for Line 23 starting in 2 hours.',
@@ -85,7 +123,7 @@ const generateAlerts = (): Alert[] => [
     ]
   },
   {
-    id: 6,
+    id: 9,
     severity: 'warning',
     title: 'Renewable Output Fluctuation',
     description: 'Solar generation dropped 25% due to cloud cover. Grid compensation active.',
@@ -99,7 +137,7 @@ const generateAlerts = (): Alert[] => [
     ]
   },
   {
-    id: 7,
+    id: 10,
     severity: 'critical',
     title: 'Communication Link Failure',
     description: 'SCADA communication lost with remote terminal unit. Manual monitoring required.',
@@ -110,19 +148,6 @@ const generateAlerts = (): Alert[] => [
       { status: 'working', timestamp: new Date(Date.now() - 3 * 60 * 60 * 1000) },
       { status: 'acknowledged', timestamp: new Date(Date.now() - 2.5 * 60 * 60 * 1000), user: 'Operator C' },
       { status: 'resolved', timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000), user: 'Tech Team' }
-    ]
-  },
-  {
-    id: 8,
-    severity: 'normal',
-    title: 'Voltage Regulation Active',
-    description: 'Automatic voltage regulator engaged to maintain grid stability.',
-    location: 'Substation S5 - East Residential',
-    timestamp: new Date(Date.now() - 4 * 60 * 60 * 1000),
-    status: 'resolved',
-    statusHistory: [
-      { status: 'working', timestamp: new Date(Date.now() - 4 * 60 * 60 * 1000) },
-      { status: 'resolved', timestamp: new Date(Date.now() - 3.5 * 60 * 60 * 1000), user: 'System' }
     ]
   }
 ]
@@ -198,13 +223,18 @@ const formatTime = (date: Date) => {
 export default function AlertsPage() {
   const [alerts, setAlerts] = useState(generateAlerts())
   const [statusFilter, setStatusFilter] = useState<'all' | AlertStatus>('all')
+  const [weatherOnly, setWeatherOnly] = useState(false)
   const [soundEnabled, setSoundEnabled] = useState(true)
   const [expandedTimeline, setExpandedTimeline] = useState<number | null>(null)
   const [openDropdown, setOpenDropdown] = useState<number | null>(null)
 
-  const filteredAlerts = statusFilter === 'all' 
+  let filteredAlerts = statusFilter === 'all' 
     ? alerts 
     : alerts.filter(a => a.status === statusFilter)
+
+  if (weatherOnly) {
+    filteredAlerts = filteredAlerts.filter(a => a.isWeatherAlert)
+  }
 
   const updateAlertStatus = (id: number, newStatus: AlertStatus) => {
     setAlerts(prev => prev.map(alert => {
@@ -214,7 +244,7 @@ export default function AlertsPage() {
           status: newStatus,
           statusHistory: [
             ...alert.statusHistory,
-            { status: newStatus, timestamp: new Date(), user: 'Current User' }
+            { status: newStatus, timestamp: new Date(), user: 'Control Operator' }
           ]
         }
       }
@@ -242,7 +272,7 @@ export default function AlertsPage() {
   }, [openDropdown])
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pb-24">
       {/* Header */}
       <motion.div
         initial={{ opacity: 0, y: -20 }}
@@ -252,10 +282,10 @@ export default function AlertsPage() {
         <div>
           <h1 className="text-2xl font-bold text-foreground flex items-center gap-3" style={{ fontFamily: 'var(--font-heading)', letterSpacing: '0.02em' }}>
             <Bell className="w-7 h-7 text-primary" />
-            Alert Management Center
+            Alert Management & Weather Risk Center
           </h1>
           <p className="text-muted-foreground" style={{ fontFamily: 'var(--font-rajdhani)' }}>
-            Interactive incident management and tracking system
+            Real-time incident management, power load alerts, and weather risk tracking
           </p>
         </div>
         
@@ -296,38 +326,56 @@ export default function AlertsPage() {
         </div>
       </motion.div>
 
-      {/* Status Filter Tabs */}
-      <div className="flex flex-wrap items-center gap-2 p-1.5 rounded-xl bg-secondary/30 border border-border/50 w-fit">
-        {[
-          { value: 'all', label: 'All Alerts', count: alerts.length, icon: Bell },
-          { value: 'working', label: 'Working', count: workingCount, icon: Wrench },
-          { value: 'acknowledged', label: 'Acknowledged', count: acknowledgedCount, icon: Eye },
-          { value: 'resolved', label: 'Resolved', count: resolvedCount, icon: CheckCheck }
-        ].map((tab) => {
-          const isActive = statusFilter === tab.value
-          const statusStyle = tab.value !== 'all' ? statusConfig[tab.value as AlertStatus] : null
-          
-          return (
-            <button
-              key={tab.value}
-              onClick={() => setStatusFilter(tab.value as typeof statusFilter)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all ${
-                isActive
-                  ? statusStyle ? `${statusStyle.bg} ${statusStyle.color} ${statusStyle.border} border` : 'bg-primary text-primary-foreground'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
-              }`}
-              style={{ fontFamily: 'var(--font-rajdhani)' }}
-            >
-              <tab.icon className="w-4 h-4" />
-              {tab.label}
-              <span className={`text-xs px-1.5 py-0.5 rounded-full ${
-                isActive ? 'bg-foreground/10' : 'bg-secondary'
-              }`}>
-                {tab.count}
-              </span>
-            </button>
-          )
-        })}
+      {/* Filter Toolbar */}
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        {/* Status Filter Tabs */}
+        <div className="flex flex-wrap items-center gap-2 p-1.5 rounded-xl bg-secondary/30 border border-border/50">
+          {[
+            { value: 'all', label: 'All Alerts', count: alerts.length, icon: Bell },
+            { value: 'working', label: 'Working', count: workingCount, icon: Wrench },
+            { value: 'acknowledged', label: 'Acknowledged', count: acknowledgedCount, icon: Eye },
+            { value: 'resolved', label: 'Resolved', count: resolvedCount, icon: CheckCheck }
+          ].map((tab) => {
+            const isActive = statusFilter === tab.value
+            const statusStyle = tab.value !== 'all' ? statusConfig[tab.value as AlertStatus] : null
+            
+            return (
+              <button
+                key={tab.value}
+                onClick={() => setStatusFilter(tab.value as typeof statusFilter)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all ${
+                  isActive
+                    ? statusStyle ? `${statusStyle.bg} ${statusStyle.color} ${statusStyle.border} border` : 'bg-primary text-primary-foreground'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
+                }`}
+                style={{ fontFamily: 'var(--font-rajdhani)' }}
+              >
+                <tab.icon className="w-4 h-4" />
+                {tab.label}
+                <span className={`text-xs px-1.5 py-0.5 rounded-full ${
+                  isActive ? 'bg-foreground/10' : 'bg-secondary'
+                }`}>
+                  {tab.count}
+                </span>
+              </button>
+            )
+          })}
+        </div>
+
+        {/* Weather-Only Filter Toggle */}
+        <button
+          onClick={() => setWeatherOnly(!weatherOnly)}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border font-semibold transition-all ${
+            weatherOnly
+              ? 'bg-amber-500/15 border-amber-500/40 text-amber-400 glow-orange'
+              : 'bg-secondary/30 border-border/50 text-muted-foreground hover:text-foreground'
+          }`}
+          style={{ fontFamily: 'var(--font-rajdhani)' }}
+        >
+          <CloudSun className="w-4 h-4" />
+          <span>Weather-Aware Alerts Only</span>
+          {weatherOnly && <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />}
+        </button>
       </div>
 
       {/* Progress Indicator */}
@@ -381,12 +429,12 @@ export default function AlertsPage() {
       </motion.div>
 
       {/* Alerts List */}
-      <div className="space-y-4">
+      <div className="space-y-4 relative z-10">
         <AnimatePresence mode="popLayout">
           {filteredAlerts.map((alert, index) => {
             const severity = severityConfig[alert.severity]
             const status = statusConfig[alert.status]
-            const SeverityIcon = severity.icon
+            const SeverityIcon = alert.isWeatherAlert ? Thermometer : severity.icon
             const StatusIcon = status.icon
 
             return (
@@ -400,7 +448,7 @@ export default function AlertsPage() {
                 className={`glass-panel rounded-xl p-5 border-2 relative transition-all duration-500 ${status.border} ${
                   alert.status === 'resolved' ? 'opacity-70' : ''
                 } ${alert.status === 'working' && alert.severity === 'critical' ? 'glow-red' : status.glow}`}
-                style={{ zIndex: openDropdown === alert.id ? 50 : 1 }}
+                style={{ zIndex: openDropdown === alert.id ? 90 : 10 }}
               >
                 {/* Animated background for working status */}
                 {alert.status === 'working' && (
@@ -413,9 +461,9 @@ export default function AlertsPage() {
                   </div>
                 )}
                 <div className="flex flex-col lg:flex-row lg:items-start gap-4 relative">
-                  {/* Left: Severity indicator */}
-                  <div className={`p-3 rounded-xl ${severity.bg} border ${severity.border} shrink-0 self-start`}>
-                    <SeverityIcon className={`w-5 h-5 ${severity.color}`} />
+                  {/* Left: Severity / Weather indicator */}
+                  <div className={`p-3 rounded-xl ${alert.isWeatherAlert ? 'bg-amber-500/15 border-amber-500/40 text-amber-400' : severity.bg + ' ' + severity.border} shrink-0 self-start`}>
+                    <SeverityIcon className={`w-5 h-5 ${alert.isWeatherAlert ? 'text-amber-400' : severity.color}`} />
                   </div>
 
                   {/* Middle: Content */}
@@ -423,10 +471,15 @@ export default function AlertsPage() {
                     <div className="flex flex-wrap items-start justify-between gap-3 mb-2">
                       <div>
                         <div className="flex flex-wrap items-center gap-2 mb-1">
+                          {alert.isWeatherAlert && (
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/40 uppercase tracking-wider font-bold flex items-center gap-1">
+                              <CloudSun className="w-3 h-3" /> Weather Risk
+                            </span>
+                          )}
                           <span className={`text-xs px-2 py-0.5 rounded-full ${severity.bg} ${severity.color} uppercase tracking-wider font-semibold`}>
                             {severity.label}
                           </span>
-                          <span className={`text-xs px-2 py-0.5 rounded-full ${status.bg} ${status.color} flex items-center gap-1`}>
+                          <span className={`text-xs px-2 py-0.5 rounded-full ${status.bg} ${status.color} flex items-center gap-1 font-bold`}>
                             <StatusIcon className="w-3 h-3" />
                             {status.label}
                           </span>
@@ -445,14 +498,15 @@ export default function AlertsPage() {
                               e.stopPropagation()
                               setOpenDropdown(openDropdown === alert.id ? null : alert.id)
                             }}
-                            className={`flex items-center gap-2 px-3 py-2 rounded-lg border transition-all ${status.bg} ${status.border} ${status.color} hover:brightness-110`}
+                            className={`flex items-center gap-2 px-3.5 py-2 rounded-lg border transition-all font-semibold ${status.bg} ${status.border} ${status.color} hover:brightness-110 shadow-md`}
                             style={{ fontFamily: 'var(--font-rajdhani)' }}
                           >
                             <StatusIcon className="w-4 h-4" />
-                            <span className="text-sm font-medium">{status.label}</span>
+                            <span className="text-sm font-bold">{status.label}</span>
                             <ChevronDown className={`w-4 h-4 transition-transform ${openDropdown === alert.id ? 'rotate-180' : ''}`} />
                           </button>
                           
+                          {/* DROPDOWN MENU — ACCESSIBLE & UNCLIPPED (Requirement 7) */}
                           <AnimatePresence>
                             {openDropdown === alert.id && (
                               <motion.div
@@ -460,22 +514,23 @@ export default function AlertsPage() {
                                 animate={{ opacity: 1, scale: 1, y: 0 }}
                                 exit={{ opacity: 0, scale: 0.95, y: -8 }}
                                 transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
-                                className="absolute right-0 top-full mt-2 w-56 rounded-xl backdrop-blur-xl border border-primary/40 z-[9999]"
+                                className="absolute right-0 top-full mt-2 w-60 rounded-xl backdrop-blur-2xl border-2 border-primary/50 z-[99999] shadow-2xl overflow-hidden"
                                 style={{
-                                  background: 'linear-gradient(180deg, oklch(0.14 0.02 250 / 0.98), oklch(0.11 0.02 250 / 0.98))',
-                                  boxShadow: '0 0 40px oklch(0.7 0.18 200 / 0.25), 0 20px 50px oklch(0 0 0 / 0.6), inset 0 1px 0 oklch(1 0 0 / 0.05)'
+                                  background: 'linear-gradient(180deg, oklch(0.16 0.02 250 / 0.98), oklch(0.11 0.02 250 / 0.98))',
+                                  boxShadow: '0 10px 40px oklch(0 0 0 / 0.8), 0 0 20px oklch(0.7 0.18 200 / 0.3)'
                                 }}
                                 onClick={(e) => e.stopPropagation()}
                               >
                                 {/* Header */}
-                                <div className="px-4 py-2.5 border-b border-primary/20">
-                                  <span className="text-xs font-semibold text-primary uppercase tracking-wider" style={{ fontFamily: 'var(--font-rajdhani)' }}>
+                                <div className="px-4 py-2.5 border-b border-primary/20 bg-primary/10 flex items-center justify-between">
+                                  <span className="text-xs font-bold text-primary uppercase tracking-wider" style={{ fontFamily: 'var(--font-rajdhani)' }}>
                                     Update Status
                                   </span>
+                                  <span className="text-[10px] text-muted-foreground">3 options</span>
                                 </div>
                                 
-                                {/* Scrollable Options Container */}
-                                <div className="p-2 space-y-1">
+                                {/* Options Container — Working, Acknowledged, Resolved */}
+                                <div className="p-2 space-y-1.5 max-h-72 overflow-y-auto">
                                   {(['working', 'acknowledged', 'resolved'] as AlertStatus[]).map((statusOption, idx) => {
                                     const optionConfig = statusConfig[statusOption]
                                     const OptionIcon = optionConfig.icon
@@ -486,46 +541,37 @@ export default function AlertsPage() {
                                         key={statusOption}
                                         initial={{ opacity: 0, x: -10 }}
                                         animate={{ opacity: 1, x: 0 }}
-                                        transition={{ delay: idx * 0.05 }}
+                                        transition={{ delay: idx * 0.04 }}
                                         onClick={() => updateAlertStatus(alert.id, statusOption)}
-                                        className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-all duration-200 group ${
+                                        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 group ${
                                           isSelected 
                                             ? `${optionConfig.bg} ${optionConfig.color} border-2 ${optionConfig.border}` 
-                                            : 'hover:bg-secondary/60 text-muted-foreground hover:text-foreground border-2 border-transparent'
+                                            : 'hover:bg-secondary/80 text-muted-foreground hover:text-foreground border-2 border-transparent'
                                         }`}
                                         style={{ 
-                                          fontFamily: 'var(--font-rajdhani)',
-                                          boxShadow: isSelected ? `0 0 20px ${statusOption === 'working' ? 'oklch(0.75 0.18 60 / 0.35)' : statusOption === 'acknowledged' ? 'oklch(0.7 0.18 200 / 0.35)' : 'oklch(0.75 0.2 160 / 0.35)'}` : 'none'
+                                          fontFamily: 'var(--font-rajdhani)'
                                         }}
                                       >
                                         <div className={`p-2 rounded-lg transition-all ${isSelected ? optionConfig.bg : 'bg-secondary/40 group-hover:bg-secondary/60'}`}>
                                           <OptionIcon className={`w-4 h-4 transition-colors ${isSelected ? optionConfig.color : 'text-muted-foreground group-hover:text-foreground'}`} />
                                         </div>
                                         <div className="flex-1 text-left">
-                                          <span className="font-bold text-sm block">{optionConfig.label}</span>
-                                          <span className="text-xs text-muted-foreground">
-                                            {statusOption === 'working' && 'In progress'}
-                                            {statusOption === 'acknowledged' && 'Being reviewed'}
-                                            {statusOption === 'resolved' && 'Issue fixed'}
+                                          <span className="font-extrabold text-sm block leading-tight">{optionConfig.label}</span>
+                                          <span className="text-[11px] text-muted-foreground block">
+                                            {statusOption === 'working' && 'Active investigation'}
+                                            {statusOption === 'acknowledged' && 'Reviewed by operator'}
+                                            {statusOption === 'resolved' && 'Resolved & stable'}
                                           </span>
                                         </div>
                                         {isSelected && (
-                                          <motion.div
-                                            initial={{ scale: 0, rotate: -180 }}
-                                            animate={{ scale: 1, rotate: 0 }}
-                                            transition={{ type: 'spring', stiffness: 400, damping: 15 }}
-                                            className={`p-1 rounded-full ${optionConfig.bg} border ${optionConfig.border}`}
-                                          >
+                                          <div className={`p-1 rounded-full ${optionConfig.bg} border ${optionConfig.border}`}>
                                             <CheckCircle2 className={`w-4 h-4 ${optionConfig.color}`} />
-                                          </motion.div>
+                                          </div>
                                         )}
                                       </motion.button>
                                     )
                                   })}
                                 </div>
-                                
-                                {/* Footer glow line */}
-                                <div className="h-0.5 bg-gradient-to-r from-transparent via-primary/50 to-transparent" />
                               </motion.div>
                             )}
                           </AnimatePresence>
@@ -546,15 +592,15 @@ export default function AlertsPage() {
 
                     <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground mb-3">
                       <div className="flex items-center gap-1">
-                        <MapPin className="w-3.5 h-3.5" />
+                        <MapPin className="w-3.5 h-3.5 text-primary" />
                         <span style={{ fontFamily: 'var(--font-rajdhani)' }}>{alert.location}</span>
                       </div>
                       <div className="flex items-center gap-1">
-                        <Clock className="w-3.5 h-3.5" />
+                        <Clock className="w-3.5 h-3.5 text-primary" />
                         <span style={{ fontFamily: 'var(--font-rajdhani)' }}>{formatTimeAgo(alert.timestamp)}</span>
                       </div>
                       <div className="flex items-center gap-1">
-                        <Zap className="w-3.5 h-3.5" />
+                        <Zap className="w-3.5 h-3.5 text-primary" />
                         <span style={{ fontFamily: 'var(--font-rajdhani)' }}>ID: {alert.id.toString().padStart(4, '0')}</span>
                       </div>
                     </div>
@@ -562,7 +608,7 @@ export default function AlertsPage() {
                     {/* Timeline Toggle */}
                     <button
                       onClick={() => setExpandedTimeline(expandedTimeline === alert.id ? null : alert.id)}
-                      className="flex items-center gap-2 text-xs text-primary hover:text-primary/80 transition-all"
+                      className="flex items-center gap-2 text-xs text-primary hover:text-primary/80 transition-all font-semibold"
                       style={{ fontFamily: 'var(--font-rajdhani)' }}
                     >
                       <History className="w-3.5 h-3.5" />
@@ -636,7 +682,7 @@ export default function AlertsPage() {
               All Clear
             </h3>
             <p className="text-sm text-muted-foreground" style={{ fontFamily: 'var(--font-rajdhani)' }}>
-              No alerts matching the current filter
+              No alerts matching the current filter criteria
             </p>
           </motion.div>
         )}

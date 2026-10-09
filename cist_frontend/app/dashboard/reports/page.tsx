@@ -5,7 +5,8 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { 
   FileText, Download, Calendar, TrendingUp, Zap, Activity, Brain, 
   Loader2, Sparkles, BarChart3, PieChart, LineChart, FileDown, 
-  Table, ChevronDown, MapPin, Building2, CheckCircle2, AlertTriangle
+  Table, ChevronDown, MapPin, Building2, CheckCircle2, AlertTriangle,
+  CloudSun, Thermometer, Droplets
 } from 'lucide-react'
 import { 
   AreaChart, 
@@ -25,8 +26,9 @@ import {
   Line
 } from 'recharts'
 import { API_URL } from '@/lib/api-config'
+import { getAreaWeatherConfig } from '@/lib/area-weather-config'
 
-type ReportType = 'demand' | 'performance' | 'renewable'
+type ReportType = 'demand' | 'performance' | 'renewable' | 'weather_impact'
 type DateRange = 'week' | 'month' | 'quarter' | 'year'
 
 interface ReportConfig {
@@ -54,10 +56,14 @@ const reportTypes: ReportConfig[] = [
     title: 'Renewable Energy Usage',
     description: 'Solar, wind, and hydro generation statistics with sustainability metrics',
     icon: Zap
+  },
+  {
+    id: 'weather_impact',
+    title: 'Weather Impact on Electricity Demand',
+    description: 'Correlation between temperature, humidity, climate shifts, and power grid demand',
+    icon: CloudSun
   }
 ]
-
-// We'll populate these from the dataset
 
 // Generate mock data based on report type
 const generateDemandData = (range: DateRange) => {
@@ -76,6 +82,24 @@ const generateDemandData = (range: DateRange) => {
   }))
 }
 
+const generateWeatherImpactTrend = (range: DateRange) => {
+  const points = range === 'week' ? 7 : 12
+  const labels = range === 'week' 
+    ? ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] 
+    : ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+  return labels.slice(0, points).map((label, i) => {
+    const temp = Math.round(30 + Math.sin(i / 1.5) * 8 + Math.random() * 2)
+    const demand = Math.round(2400 + Math.pow(temp - 20, 1.5) * 35)
+    return {
+      name: label,
+      actual: demand,
+      predicted: Math.round(demand * 1.05),
+      temperature: temp
+    }
+  })
+}
+
 const generatePerformanceData = () => [
   { name: 'Uptime', value: 99.97, target: 99.9 },
   { name: 'Efficiency', value: 94.2, target: 92 },
@@ -91,10 +115,10 @@ const generateRenewableData = () => [
 ]
 
 const generateEnergyDistribution = () => [
-  { name: 'Residential', value: 35 },
-  { name: 'Industrial', value: 40 },
-  { name: 'Commercial', value: 18 },
-  { name: 'Public', value: 7 }
+  { name: 'Residential Cooling', value: 45 },
+  { name: 'Commercial HVAC', value: 32 },
+  { name: 'Industrial Baseline', value: 16 },
+  { name: 'Public Utilities', value: 7 }
 ]
 
 const aiInsights: Record<ReportType, string[]> = {
@@ -115,6 +139,12 @@ const aiInsights: Record<ReportType, string[]> = {
     'Solar output increased 22% due to favorable weather conditions and new panel installations.',
     'Wind generation showed 15% variability, compensated effectively by grid storage.',
     'Carbon emissions reduced by 28% compared to the same period last year.'
+  ],
+  weather_impact: [
+    'Temperature correlation analysis indicates an exponential demand surge above 32°C ambient threshold.',
+    'High relative humidity combined with elevated temperatures prolonged peak cooling window by 2.5 hours.',
+    'Substation thermal loading increased by 14% during heatwave spikes, managed effectively by AI load shifting.',
+    'AI weather prediction model forecasts continued elevated thermal demand for upcoming afternoon cycles.'
   ]
 }
 
@@ -129,8 +159,8 @@ export default function ReportsPage() {
   const [reportGenerated, setReportGenerated] = useState(false)
   const [generationProgress, setGenerationProgress] = useState(0)
   const [openDropdown, setOpenDropdown] = useState<string | null>(null)
-  const [regions, setRegions] = useState<{ id: string; name: string }[]>([{ id: 'all', name: 'All Regions' }])
-  const [substations, setSubstations] = useState<{ id: string; name: string }[]>([{ id: 'all', name: 'All Substations' }])
+  const [regions, setRegions] = useState<{ id: string; name: string }[]>([{ id: 'all', name: 'All Circles' }])
+  const [substations, setSubstations] = useState<{ id: string; name: string }[]>([{ id: 'all', name: 'All Sections' }])
   const [reportData, setReportData] = useState<any>(null)
 
   useEffect(() => {
@@ -165,7 +195,6 @@ export default function ReportsPage() {
     setReportGenerated(false)
     setGenerationProgress(0)
     
-    // Simulate progress
     const progressInterval = setInterval(() => {
       setGenerationProgress(prev => {
         if (prev >= 95) {
@@ -176,7 +205,6 @@ export default function ReportsPage() {
       })
     }, 200)
 
-    // Fetch real data from backend
     try {
       const url = new URL(`${API_URL}/report-data`)
       url.searchParams.append('report_type', selectedReport)
@@ -211,10 +239,12 @@ export default function ReportsPage() {
     }
   }, [openDropdown])
 
-  const demandData = generateDemandData(dateRange)
+  const demandData = selectedReport === 'weather_impact' ? generateWeatherImpactTrend(dateRange) : generateDemandData(dateRange)
   const performanceData = generatePerformanceData()
   const renewableData = generateRenewableData()
   const distributionData = generateEnergyDistribution()
+
+  const areaWeather = getAreaWeatherConfig(region !== 'all' ? region : 'Hyderabad')
 
   const getMetrics = () => {
     if (reportData && reportData.metrics) {
@@ -228,6 +258,13 @@ export default function ReportsPage() {
     }
 
     switch (selectedReport) {
+      case 'weather_impact':
+        return [
+          { label: 'Avg Temperature', value: `${areaWeather.baseTemp}°C`, change: '+3.2°C', positive: false },
+          { label: 'Avg Humidity', value: `${areaWeather.baseHumidity}%`, change: '+4.0%', positive: false },
+          { label: 'Electricity Demand', value: '3,120 MW', change: '+12.4%', positive: false },
+          { label: 'Peak Demand Spike', value: '3,850 MW', change: '+18.5%', positive: false }
+        ]
       case 'demand':
         return [
           { label: 'Peak Demand', value: '2,847 MW', change: '+5.2%', positive: false },
@@ -289,7 +326,7 @@ export default function ReportsPage() {
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
-            className="absolute z-50 w-full mt-2 rounded-xl bg-card border border-border/50 shadow-xl overflow-hidden"
+            className="absolute z-50 w-full mt-2 rounded-xl bg-card border border-border/50 shadow-xl overflow-hidden max-h-60 overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
             {options.map((option) => (
@@ -330,7 +367,7 @@ export default function ReportsPage() {
             Dynamic Report Generator
           </h1>
           <p className="text-muted-foreground" style={{ fontFamily: 'var(--font-rajdhani)' }}>
-            AI-powered analytics and customizable report generation
+            AI-powered analytics, grid reporting, and weather impact analysis
           </p>
         </div>
       </motion.div>
@@ -354,7 +391,7 @@ export default function ReportsPage() {
               <label className="text-sm text-muted-foreground mb-2 block" style={{ fontFamily: 'var(--font-rajdhani)' }}>
                 Report Type
               </label>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {reportTypes.map((report) => {
                   const isSelected = selectedReport === report.id
                   return (
@@ -420,7 +457,7 @@ export default function ReportsPage() {
           <div className="space-y-4">
             <div>
               <label className="text-sm text-muted-foreground mb-2 block" style={{ fontFamily: 'var(--font-rajdhani)' }}>
-                Region Filter
+                Selected Area / Circle Filter
               </label>
               <Dropdown
                 value={region}
@@ -489,7 +526,7 @@ export default function ReportsPage() {
               style={{ fontFamily: 'var(--font-rajdhani)' }}
             >
               <Brain className="w-4 h-4 animate-pulse text-primary" />
-              <span>AI analyzing {Math.round(generationProgress)}% of data points...</span>
+              <span>AI analyzing {Math.round(generationProgress)}% of weather & grid metrics...</span>
             </motion.div>
           )}
         </div>
@@ -535,7 +572,7 @@ export default function ReportsPage() {
                     {reportTypes.find(r => r.id === selectedReport)?.title} Report
                   </h2>
                   <p className="text-sm text-muted-foreground mt-1" style={{ fontFamily: 'var(--font-rajdhani)' }}>
-                    Generated on {new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                    Area Zone: <span className="text-primary font-bold">{region === 'all' ? 'All Areas (Hyderabad Hub)' : region}</span> • Range: <span className="uppercase text-foreground font-semibold">{dateRange}</span> • Generated on {new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
                   </p>
                 </div>
                 
@@ -602,7 +639,6 @@ export default function ReportsPage() {
               transition={{ delay: 0.4 }}
               className="glass-panel rounded-xl p-6 border border-primary/30 relative overflow-hidden"
             >
-              {/* Animated background */}
               <div className="absolute inset-0 energy-flow opacity-30 pointer-events-none" />
               
               <div className="relative">
@@ -611,24 +647,15 @@ export default function ReportsPage() {
                     <Brain className="w-5 h-5 text-primary" />
                   </div>
                   <h3 className="text-lg font-semibold text-foreground" style={{ fontFamily: 'var(--font-heading)' }}>
-                    AI Insights
+                    AI Analysis & Weather Insights
                   </h3>
                   <span className="px-2 py-0.5 rounded-full bg-primary/20 text-primary text-xs">
-                    Powered by Neural Analytics
+                    Neural Weather-Grid Correlation Model
                   </span>
                 </div>
                 
                 <div className="space-y-3">
-                  {(reportData && reportData.metrics ? [
-                    `Average system load for ${region === 'all' ? 'all regions' : region} is ${reportData.metrics.avg_load} MW.`,
-                    `Grid efficiency is currently at ${reportData.metrics.efficiency}%, showing ${reportData.metrics.efficiency > 92 ? 'optimal' : 'sub-optimal'} performance.`,
-                    `Total consumption of ${Math.round(reportData.metrics.total_units / 1000)}k kWh recorded across ${substation === 'all' ? 'all sections' : substation}.`,
-                    `AI models suggest ${reportData.metrics.avg_load > 1000 ? 'high' : 'normal'} priority for maintenance in ${region}.`
-                  ] : [
-                    "AI is analyzing grid patterns for the selected filters...",
-                    "Select specific regions or substations to receive deeper insights.",
-                    "Ensure the backend server is running for real-time analytics."
-                  ]).map((insight, index) => (
+                  {currentInsights.map((insight, index) => (
                     <motion.div
                       key={index}
                       initial={{ opacity: 0, x: -20 }}
@@ -658,7 +685,7 @@ export default function ReportsPage() {
                 <div className="flex items-center gap-2 mb-4">
                   <LineChart className="w-5 h-5 text-primary" />
                   <h3 className="text-lg font-semibold text-foreground" style={{ fontFamily: 'var(--font-heading)' }}>
-                    {selectedReport === 'demand' ? 'Demand Trends' : selectedReport === 'performance' ? 'Performance Over Time' : 'Generation Trends'}
+                    {selectedReport === 'weather_impact' ? 'Weather-Demand Correlation Trend' : selectedReport === 'demand' ? 'Demand Trends' : selectedReport === 'performance' ? 'Performance Over Time' : 'Generation Trends'}
                   </h3>
                 </div>
                 <div className="h-[280px]">
@@ -701,7 +728,7 @@ export default function ReportsPage() {
                         dataKey="actual"
                         stroke="oklch(0.7 0.18 200)"
                         fill="url(#actualGradient)"
-                        name="Actual (MW)"
+                        name="Electricity Demand (MW)"
                         strokeWidth={2}
                       />
                       <Area
@@ -709,7 +736,7 @@ export default function ReportsPage() {
                         dataKey="predicted"
                         stroke="oklch(0.75 0.2 160)"
                         fill="url(#predictedGradient)"
-                        name="Predicted (MW)"
+                        name="Forecasted Peak (MW)"
                         strokeWidth={2}
                         strokeDasharray="5 5"
                       />
@@ -728,7 +755,7 @@ export default function ReportsPage() {
                 <div className="flex items-center gap-2 mb-4">
                   <BarChart3 className="w-5 h-5 text-primary" />
                   <h3 className="text-lg font-semibold text-foreground" style={{ fontFamily: 'var(--font-heading)' }}>
-                    Energy Distribution
+                    {selectedReport === 'weather_impact' ? 'Sector HVAC & Cooling Share' : 'Energy Distribution'}
                   </h3>
                 </div>
                 <div className="h-[280px]">
@@ -768,128 +795,10 @@ export default function ReportsPage() {
                   </ResponsiveContainer>
                 </div>
               </motion.div>
-
-              {/* Pie Chart */}
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.8 }}
-                className="glass-panel rounded-xl p-6 border border-border/50"
-              >
-                <div className="flex items-center gap-2 mb-4">
-                  <PieChart className="w-5 h-5 text-primary" />
-                  <h3 className="text-lg font-semibold text-foreground" style={{ fontFamily: 'var(--font-heading)' }}>
-                    {selectedReport === 'renewable' ? 'Energy Source Mix' : 'Renewable vs Non-Renewable'}
-                  </h3>
-                </div>
-                <div className="h-[280px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <RechartsPieChart>
-                      <Pie
-                        data={reportData?.renewable_mix || renewableData}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={60}
-                        outerRadius={100}
-                        paddingAngle={3}
-                        dataKey="value"
-                        label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                        labelLine={false}
-                      >
-                        {renewableData.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={entry.color} />
-                        ))}
-                      </Pie>
-                      <Tooltip
-                        contentStyle={{
-                          background: 'oklch(0.15 0.02 250 / 0.95)',
-                          border: '1px solid oklch(0.7 0.18 200 / 0.3)',
-                          borderRadius: '8px',
-                          fontFamily: 'var(--font-rajdhani)'
-                        }}
-                      />
-                    </RechartsPieChart>
-                  </ResponsiveContainer>
-                </div>
-              </motion.div>
-
-              {/* Performance Metrics */}
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.9 }}
-                className="glass-panel rounded-xl p-6 border border-border/50"
-              >
-                <div className="flex items-center gap-2 mb-4">
-                  <Activity className="w-5 h-5 text-primary" />
-                  <h3 className="text-lg font-semibold text-foreground" style={{ fontFamily: 'var(--font-heading)' }}>
-                    Performance vs Target
-                  </h3>
-                </div>
-                <div className="space-y-4">
-                  {performanceData.map((item, index) => {
-                    const percentage = (item.value / item.target) * 100
-                    const isAboveTarget = item.value >= item.target
-                    
-                    return (
-                      <motion.div
-                        key={item.name}
-                        initial={{ opacity: 0, x: -20 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: 0.9 + index * 0.1 }}
-                        className="space-y-2"
-                      >
-                        <div className="flex items-center justify-between text-sm">
-                          <span className="text-muted-foreground" style={{ fontFamily: 'var(--font-rajdhani)' }}>
-                            {item.name}
-                          </span>
-                          <div className="flex items-center gap-2">
-                            <span className="font-medium text-foreground" style={{ fontFamily: 'var(--font-heading)' }}>
-                              {item.value}%
-                            </span>
-                            <span className={`text-xs px-1.5 py-0.5 rounded-full ${
-                              isAboveTarget ? 'bg-accent/20 text-accent' : 'bg-[oklch(0.75_0.18_60)]/20 text-[oklch(0.75_0.18_60)]'
-                            }`}>
-                              Target: {item.target}%
-                            </span>
-                          </div>
-                        </div>
-                        <div className="h-2 bg-secondary/50 rounded-full overflow-hidden">
-                          <motion.div
-                            initial={{ width: 0 }}
-                            animate={{ width: `${Math.min(percentage, 100)}%` }}
-                            transition={{ duration: 0.8, delay: 0.9 + index * 0.1 }}
-                            className={`h-full rounded-full ${isAboveTarget ? 'bg-accent' : 'bg-[oklch(0.75_0.18_60)]'}`}
-                          />
-                        </div>
-                      </motion.div>
-                    )
-                  })}
-                </div>
-              </motion.div>
             </div>
           </motion.div>
         )}
       </AnimatePresence>
-
-      {/* Empty State */}
-      {!reportGenerated && !isGenerating && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="glass-panel rounded-xl p-12 border border-border/50 text-center"
-        >
-          <div className="p-4 rounded-xl bg-primary/10 border border-primary/30 w-fit mx-auto mb-4">
-            <FileText className="w-8 h-8 text-primary" />
-          </div>
-          <h3 className="text-lg font-semibold text-foreground mb-2" style={{ fontFamily: 'var(--font-heading)' }}>
-            Configure Your Report
-          </h3>
-          <p className="text-sm text-muted-foreground max-w-md mx-auto" style={{ fontFamily: 'var(--font-rajdhani)' }}>
-            Select a report type, date range, and filters above, then click &quot;Generate Report&quot; to create your customized analytics report with AI-powered insights.
-          </p>
-        </motion.div>
-      )}
     </div>
   )
 }

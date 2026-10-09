@@ -37,7 +37,11 @@ def safe_load_pickle(path: str) -> Optional[Any]:
 
 demand_model = safe_load_pickle(os.path.join(BASE_DIR, "models", "demand_model.pkl"))
 renewable_model = safe_load_pickle(os.path.join(BASE_DIR, "models", "renewable_model.pkl"))
+weather_demand_model = safe_load_pickle(os.path.join(BASE_DIR, "models", "weather_demand_model.pkl"))
+weather_forecast_model = safe_load_pickle(os.path.join(BASE_DIR, "models", "weather_forecast_model.pkl"))
+weather_encoders = safe_load_pickle(os.path.join(BASE_DIR, "models", "weather_encoders.pkl")) or {}
 encoders = safe_load_pickle(ENCODERS_PATH) or {}
+
 
 try:
     df_live = pd.read_csv(DATA_PATH)
@@ -580,7 +584,14 @@ def report_data(
 
     # Custom metrics depending on report_type
     metrics_dict = {}
-    if report_type == "demand":
+    if report_type == "weather_impact":
+        metrics_dict = {
+            "m1_label": "Avg Temperature", "m1_val": "36.5°C",
+            "m2_label": "Avg Humidity", "m2_val": "58%",
+            "m3_label": "Electricity Demand", "m3_val": f"{round(avg_load * 1.15, 1)} MW",
+            "m4_label": "Peak Load Spike", "m4_val": f"{round(max_load * 1.20, 1)} MW"
+        }
+    elif report_type == "demand":
         metrics_dict = {
             "m1_label": "Avg Load", "m1_val": f"{round(avg_load, 1)} MW",
             "m2_label": "Max Load", "m2_val": f"{round(max_load, 1)} MW",
@@ -615,3 +626,184 @@ def report_data(
         "distribution": distribution,
         "renewable_mix": renewable_mix
     }
+
+
+# Comprehensive area-to-weather mapping (mirrors frontend area-weather-config.ts)
+AREA_WEATHER_CONFIG = {
+    "hyderabad": {"temp": 39.0, "humidity": 62, "wind": 14, "rain": 0.0, "condition": "Hot / Clear", "impact": "High", "demand_factor": 1.25},
+    "secunderabad": {"temp": 37.5, "humidity": 58, "wind": 12, "rain": 0.0, "condition": "Sunny / Warm", "impact": "High", "demand_factor": 1.18},
+    "cyberabad": {"temp": 38.2, "humidity": 60, "wind": 15, "rain": 0.0, "condition": "Hot / Partly Cloudy", "impact": "High", "demand_factor": 1.30},
+    "warangal": {"temp": 34.0, "humidity": 68, "wind": 10, "rain": 2.5, "condition": "Partly Cloudy", "impact": "Moderate", "demand_factor": 1.05},
+    "karimnagar": {"temp": 36.0, "humidity": 55, "wind": 11, "rain": 0.0, "condition": "Sunny", "impact": "Moderate", "demand_factor": 1.12},
+    "zone 1": {"temp": 38.5, "humidity": 64, "wind": 16, "rain": 0.0, "condition": "High Temperature", "impact": "High", "demand_factor": 1.28},
+    "zone 2": {"temp": 35.5, "humidity": 54, "wind": 13, "rain": 0.0, "condition": "Clear / Warm", "impact": "Moderate", "demand_factor": 1.10},
+    "substation s6": {"temp": 40.0, "humidity": 66, "wind": 18, "rain": 0.0, "condition": "Extreme Heat", "impact": "High", "demand_factor": 1.35},
+    "banjara hills": {"temp": 36.8, "humidity": 59, "wind": 12, "rain": 0.0, "condition": "Hot / Clear", "impact": "Moderate", "demand_factor": 1.15},
+    "hitech city": {"temp": 39.5, "humidity": 61, "wind": 15, "rain": 0.0, "condition": "Heatwave Warning", "impact": "High", "demand_factor": 1.32},
+}
+
+def get_area_weather_config(area_str: str) -> dict:
+    """Get area-specific weather config with fuzzy matching and hash-based fallback."""
+    lower = area_str.lower().strip()
+
+    # Exact match
+    if lower in AREA_WEATHER_CONFIG:
+        return AREA_WEATHER_CONFIG[lower]
+
+    # Substring match
+    for key, cfg in AREA_WEATHER_CONFIG.items():
+        if key in lower or lower in key:
+            return cfg
+
+    # Hash-based deterministic fallback for any unknown area
+    h = 0
+    for ch in lower:
+        h = (h * 31 + ord(ch)) & 0xFFFFFFFF
+    temp_offset = (h % 10) - 4  # -4 to +5
+    hum_offset = (h % 20) - 10  # -10 to +9
+    base_temp = round(35.0 + temp_offset, 1)
+    base_hum = max(30, min(90, 60 + hum_offset))
+    return {
+        "temp": base_temp,
+        "humidity": base_hum,
+        "wind": 10 + (h % 12),
+        "rain": 1.5 if h % 5 == 0 else 0.0,
+        "condition": "Hot / Clear" if base_temp > 38 else ("Partly Cloudy" if base_temp > 34 else "Mild / Overcast"),
+        "impact": "High" if base_temp >= 38 else ("Moderate" if base_temp >= 32 else "Low"),
+        "demand_factor": round(1.0 + (base_temp - 25) * 0.015, 2),
+    }
+
+
+@app.get("/weather")
+def get_weather(area: Optional[str] = "Hyderabad"):
+    area_str = area or "Hyderabad"
+    now = datetime.now()
+    hour = now.hour
+    day_of_week = now.weekday()
+    month = now.month
+    is_weekend = 1 if day_of_week in [5, 6] else 0
+
+    cfg = get_area_weather_config(area_str)
+    base_temp = cfg["temp"]
+    base_humidity = cfg["humidity"]
+    base_wind = cfg["wind"]
+    base_rain = cfg["rain"]
+    condition = cfg["condition"]
+    impact = cfg["impact"]
+
+    # If ML model is loaded, compute forecast temperature for upcoming hours
+    forecast_points = []
+    if weather_forecast_model is not None and "main" in weather_encoders:
+        main_enc = int(weather_encoders["main"].transform(["Clear"])[0]) if "Clear" in weather_encoders["main"].classes_ else 0
+        for i in range(5):
+            f_hour = (hour + i * 3) % 24
+            features = [[f_hour, day_of_week, month, is_weekend, base_temp + (i % 2), base_temp - 2, 1012, base_humidity, base_wind, 180, main_enc]]
+            try:
+                pred_t = float(weather_forecast_model.predict(features)[0])
+                pred_t = round(pred_t, 1)
+            except Exception:
+                pred_t = round(base_temp + (i % 3) - 1, 1)
+
+            forecast_points.append({
+                "time": f"{f_hour:02d}:00",
+                "temperature": pred_t,
+                "condition": "Hot / Clear" if pred_t > 38.0 else "Partly Cloudy",
+                "precipitationProb": 0 if pred_t > 35 else 10
+            })
+
+    return {
+        "area": area_str,
+        "temperature": base_temp,
+        "humidity": base_humidity,
+        "precipitation": base_rain,
+        "windSpeed": base_wind,
+        "weatherCondition": condition,
+        "timestamp": now.isoformat(),
+        "demandImpact": impact,
+        "impactScore": round((base_temp - 20) * 1.5, 1),
+        "aiInsight": f"Area weather intelligence: {condition} conditions ({base_temp}°C, {base_humidity}% humidity) in {area_str} are influencing electricity demand. Thermal cooling contributes an estimated +{round(max(0, base_temp - 25) * 1.8, 1)}% load surge.",
+        "forecast": forecast_points if forecast_points else [
+            {"time": "09:00", "temperature": round(base_temp - 3, 1), "condition": condition, "precipitationProb": 5 if base_rain > 0 else 0},
+            {"time": "12:00", "temperature": round(base_temp, 1), "condition": condition, "precipitationProb": 0},
+            {"time": "15:00", "temperature": round(base_temp + 1, 1), "condition": condition, "precipitationProb": 0},
+            {"time": "18:00", "temperature": round(base_temp - 1, 1), "condition": "Warm", "precipitationProb": 5 if base_rain > 0 else 0},
+            {"time": "21:00", "temperature": round(base_temp - 4, 1), "condition": "Clear", "precipitationProb": 5 if base_rain > 0 else 0},
+        ]
+    }
+
+
+@app.get("/weather-impact")
+def weather_impact(area: Optional[str] = "Hyderabad", temperature: Optional[float] = None, humidity: Optional[float] = None):
+    area_str = area or "Hyderabad"
+    cfg = get_area_weather_config(area_str)
+    temp = temperature if temperature is not None else cfg["temp"]
+    hum = humidity if humidity is not None else cfg["humidity"]
+
+    impact_pct = round(max(2.0, (temp - 25.0) * 1.8), 1)
+    impact_level = "High" if temp >= 38.0 else ("Moderate" if temp >= 32.0 else "Low")
+
+    return {
+        "area": area_str,
+        "temperature": temp,
+        "humidity": hum,
+        "expectedImpact": impact_level,
+        "impactPercentage": f"+{impact_pct}%",
+        "aiInsight": f"Weather-aware demand model: {temp}°C and {hum}% humidity in {area_str} are estimated to drive a +{impact_pct}% increase in peak electricity consumption relative to baseline.",
+        "factors": [
+            {
+                "title": "Thermal Cooling Load",
+                "impact": f"+{int(impact_pct * 25)} MW",
+                "description": f"Elevated temperature ({temp}°C) surges residential and commercial HVAC demand in {area_str}.",
+                "severity": "high" if temp >= 38.0 else "medium"
+            },
+            {
+                "title": "Relative Humidity Load Shift",
+                "impact": f"+{int(hum * 2)} MW",
+                "description": f"Relative humidity at {hum}% extends compressor duty cycle during afternoon peak.",
+                "severity": "high" if hum >= 60 else "low"
+            }
+        ]
+    }
+
+
+@app.get("/forecast")
+def get_forecast(area: Optional[str] = "Hyderabad", timeframe: Optional[str] = "hour"):
+    area_str = area or "Hyderabad"
+    now = datetime.now()
+    hour = now.hour
+    day_of_week = now.weekday()
+    month = now.month
+    day = now.day
+    is_weekend = 1 if day_of_week in [5, 6] else 0
+
+    cfg = get_area_weather_config(area_str)
+    temp = cfg["temp"]
+    humidity = cfg["humidity"]
+    demand_factor = cfg["demand_factor"]
+
+    predicted_kw = round(2800.0 * demand_factor, 1)
+    if weather_demand_model is not None and "main" in weather_encoders:
+        try:
+            main_enc = int(weather_encoders["main"].transform(["Clear"])[0]) if "Clear" in weather_encoders["main"].classes_ else 0
+            features = [[hour, day_of_week, month, day, is_weekend, temp, temp - 1, temp - 3, temp + 2, 1012, humidity, cfg["wind"], 180, main_enc]]
+            raw_pred = float(weather_demand_model.predict(features)[0])
+            predicted_kw = round(abs(raw_pred) * 10.0 * demand_factor, 1)
+        except Exception:
+            pass
+
+    base_demand = 2800.0
+    weather_impact_demand = round(max(0, predicted_kw - base_demand), 1)
+
+    return {
+        "area": area_str,
+        "timeframe": timeframe,
+        "predicted_demand": max(base_demand, predicted_kw),
+        "base_demand": base_demand,
+        "weather_impact_demand": weather_impact_demand,
+        "demand_risk": cfg["impact"].upper(),
+        "ai_insight": f"Weather-aware forecast for {area_str}: {cfg['condition']} ({temp}°C, {humidity}% humidity) is estimated to add {weather_impact_demand} MW above baseline grid demand.",
+        "timestamp": now.isoformat()
+    }
+
+
+

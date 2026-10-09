@@ -1,8 +1,11 @@
 "use client"
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { Brain, Clock, Calendar, TrendingUp, Thermometer, Cloud, Users, Sparkles } from 'lucide-react'
+import { 
+  Brain, Clock, Calendar, TrendingUp, Thermometer, Cloud, Users, Sparkles, 
+  MapPin, Droplets, Wind, CloudSun, CloudRain, Sun, ChevronDown
+} from 'lucide-react'
 import { 
   AreaChart, 
   Area, 
@@ -15,6 +18,10 @@ import {
   Bar,
   Legend
 } from 'recharts'
+import { WeatherService, WeatherData, WeatherImpactAnalysis } from '@/lib/weather-service'
+import { WeatherImpactPanel } from '@/components/dashboard/weather-impact-panel'
+import { WeatherVsDemandChart } from '@/components/dashboard/weather-vs-demand-chart'
+import { AREA_WEATHER_MAP } from '@/lib/area-weather-config'
 
 // Generate forecast data
 const generateHourlyForecast = () => {
@@ -63,7 +70,7 @@ const aiInsights = [
   {
     icon: Thermometer,
     title: 'Temperature Impact',
-    description: 'Expected high of 32°C will increase cooling demand by 18% during afternoon hours',
+    description: 'Expected high of 39°C will increase cooling demand by 18% during afternoon hours',
     impact: '+450 MW',
     color: 'text-destructive'
   },
@@ -92,50 +99,213 @@ const aiInsights = [
 
 export default function ForecastPage() {
   const [timeframe, setTimeframe] = useState<'hour' | 'day' | 'week'>('hour')
+  const [selectedArea, setSelectedArea] = useState<string>('Hyderabad')
+  const [weatherData, setWeatherData] = useState<WeatherData | null>(null)
+  const [weatherImpact, setWeatherImpact] = useState<WeatherImpactAnalysis | null>(null)
+  const [loadingWeather, setLoadingWeather] = useState(true)
+
+  // Fetch weather information whenever selected area changes
+  useEffect(() => {
+    let isMounted = true
+    const fetchAreaWeather = async () => {
+      setLoadingWeather(true)
+      const data = await WeatherService.getWeatherData(selectedArea)
+      const impact = await WeatherService.getWeatherImpact(selectedArea)
+      if (isMounted) {
+        setWeatherData(data)
+        setWeatherImpact(impact)
+        setLoadingWeather(false)
+      }
+    }
+
+    fetchAreaWeather()
+  }, [selectedArea])
+
+  const areaOptions = Object.keys(AREA_WEATHER_MAP)
 
   return (
     <div className="space-y-6">
-      {/* Header */}
+      {/* Header & Area Selector */}
       <motion.div
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="flex items-center justify-between"
+        className="flex flex-col md:flex-row md:items-center justify-between gap-4"
       >
         <div>
           <h1 className="text-2xl font-bold text-foreground flex items-center gap-3" style={{ fontFamily: 'var(--font-heading)' }}>
             <Brain className="w-7 h-7 text-primary" />
-            AI Demand Forecast
+            AI Demand Forecast & Weather Intelligence
           </h1>
           <p className="text-muted-foreground" style={{ fontFamily: 'var(--font-rajdhani)' }}>
-            Machine learning powered demand predictions and analysis
+            Machine learning powered electricity predictions with weather intelligence layer
           </p>
         </div>
         
-        {/* Timeframe selector */}
-        <div className="flex items-center gap-1 p-1 rounded-lg bg-secondary/50 border border-border/50">
-          {[
-            { value: 'hour', label: 'Next Hour', icon: Clock },
-            { value: 'day', label: 'Next Day', icon: Calendar },
-            { value: 'week', label: 'Next Week', icon: Calendar }
-          ].map((option) => (
-            <button
-              key={option.value}
-              onClick={() => setTimeframe(option.value as typeof timeframe)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-md transition-all ${
-                timeframe === option.value
-                  ? 'bg-primary text-primary-foreground'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-              style={{ fontFamily: 'var(--font-rajdhani)' }}
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Area Selector Dropdown */}
+          <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-secondary/50 border border-border/50">
+            <MapPin className="w-4 h-4 text-primary shrink-0" />
+            <span className="text-xs text-muted-foreground" style={{ fontFamily: 'var(--font-rajdhani)' }}>
+              Selected Area:
+            </span>
+            <select
+              value={selectedArea}
+              onChange={(e) => setSelectedArea(e.target.value)}
+              className="bg-transparent text-sm font-bold text-foreground focus:outline-none cursor-pointer"
+              style={{ fontFamily: 'var(--font-heading)' }}
             >
-              <option.icon className="w-4 h-4" />
-              {option.label}
-            </button>
-          ))}
+              {areaOptions.map((areaKey) => (
+                <option key={areaKey} value={areaKey} className="bg-background text-foreground">
+                  {areaKey}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Timeframe selector */}
+          <div className="flex items-center gap-1 p-1 rounded-lg bg-secondary/50 border border-border/50">
+            {[
+              { value: 'hour', label: 'Next Hour', icon: Clock },
+              { value: 'day', label: 'Next Day', icon: Calendar },
+              { value: 'week', label: 'Next Week', icon: Calendar }
+            ].map((option) => (
+              <button
+                key={option.value}
+                onClick={() => setTimeframe(option.value as typeof timeframe)}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-md transition-all text-xs font-semibold ${
+                  timeframe === option.value
+                    ? 'bg-primary text-primary-foreground'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+                style={{ fontFamily: 'var(--font-rajdhani)' }}
+              >
+                <option.icon className="w-3.5 h-3.5" />
+                {option.label}
+              </button>
+            ))}
+          </div>
         </div>
       </motion.div>
 
-      {/* Main Forecast Chart */}
+      {/* WEATHER DATA SECTION (Requirement 2 & 6) */}
+      <motion.div
+        initial={{ opacity: 0, y: 15 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="glass-panel rounded-xl p-6 border border-primary/30 glow-blue"
+      >
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-lg font-bold text-foreground flex items-center gap-2" style={{ fontFamily: 'var(--font-heading)' }}>
+              <CloudSun className="w-5 h-5 text-amber-400" />
+              Weather Intelligence Overview — {selectedArea}
+            </h3>
+            <p className="text-xs text-muted-foreground" style={{ fontFamily: 'var(--font-rajdhani)' }}>
+              Live area climate data feeding the neural demand forecasting network
+            </p>
+          </div>
+
+          <span className="text-xs px-3 py-1 rounded-full bg-primary/10 border border-primary/30 text-primary font-semibold" style={{ fontFamily: 'var(--font-rajdhani)' }}>
+            Dynamic Weather Sync
+          </span>
+        </div>
+
+        {/* Weather Metrics Grid */}
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+          {/* Temperature */}
+          <div className="p-4 rounded-xl bg-secondary/30 border border-border/50 flex flex-col justify-between">
+            <div className="flex items-center justify-between text-muted-foreground mb-2">
+              <span className="text-xs uppercase tracking-wider" style={{ fontFamily: 'var(--font-rajdhani)' }}>
+                Temperature
+              </span>
+              <Thermometer className="w-4 h-4 text-amber-400" />
+            </div>
+            <div className="text-2xl font-bold text-foreground" style={{ fontFamily: 'var(--font-heading)' }}>
+              {weatherData ? `${weatherData.temperature}°C` : '39°C'}
+            </div>
+            <span className="text-[10px] text-muted-foreground mt-1" style={{ fontFamily: 'var(--font-rajdhani)' }}>
+              Ambient zone temp
+            </span>
+          </div>
+
+          {/* Humidity */}
+          <div className="p-4 rounded-xl bg-secondary/30 border border-border/50 flex flex-col justify-between">
+            <div className="flex items-center justify-between text-muted-foreground mb-2">
+              <span className="text-xs uppercase tracking-wider" style={{ fontFamily: 'var(--font-rajdhani)' }}>
+                Humidity
+              </span>
+              <Droplets className="w-4 h-4 text-cyan-400" />
+            </div>
+            <div className="text-2xl font-bold text-foreground" style={{ fontFamily: 'var(--font-heading)' }}>
+              {weatherData ? `${weatherData.humidity}%` : '62%'}
+            </div>
+            <span className="text-[10px] text-muted-foreground mt-1" style={{ fontFamily: 'var(--font-rajdhani)' }}>
+              Relative humidity
+            </span>
+          </div>
+
+          {/* Weather Condition */}
+          <div className="p-4 rounded-xl bg-secondary/30 border border-border/50 flex flex-col justify-between">
+            <div className="flex items-center justify-between text-muted-foreground mb-2">
+              <span className="text-xs uppercase tracking-wider" style={{ fontFamily: 'var(--font-rajdhani)' }}>
+                Condition
+              </span>
+              <Sun className="w-4 h-4 text-amber-400" />
+            </div>
+            <div className="text-lg font-bold text-foreground truncate" style={{ fontFamily: 'var(--font-heading)' }}>
+              {weatherData?.weatherCondition || 'Hot / Clear'}
+            </div>
+            <span className="text-[10px] text-muted-foreground mt-1" style={{ fontFamily: 'var(--font-rajdhani)' }}>
+              Sky condition
+            </span>
+          </div>
+
+          {/* Rainfall / Precipitation */}
+          <div className="p-4 rounded-xl bg-secondary/30 border border-border/50 flex flex-col justify-between">
+            <div className="flex items-center justify-between text-muted-foreground mb-2">
+              <span className="text-xs uppercase tracking-wider" style={{ fontFamily: 'var(--font-rajdhani)' }}>
+                Rainfall
+              </span>
+              <CloudRain className="w-4 h-4 text-blue-400" />
+            </div>
+            <div className="text-2xl font-bold text-foreground" style={{ fontFamily: 'var(--font-heading)' }}>
+              {weatherData ? `${weatherData.precipitation} mm` : '0 mm'}
+            </div>
+            <span className="text-[10px] text-muted-foreground mt-1" style={{ fontFamily: 'var(--font-rajdhani)' }}>
+              Precipitation level
+            </span>
+          </div>
+
+          {/* Wind Speed */}
+          <div className="p-4 rounded-xl bg-secondary/30 border border-border/50 flex flex-col justify-between">
+            <div className="flex items-center justify-between text-muted-foreground mb-2">
+              <span className="text-xs uppercase tracking-wider" style={{ fontFamily: 'var(--font-rajdhani)' }}>
+                Wind Speed
+              </span>
+              <Wind className="w-4 h-4 text-emerald-400" />
+            </div>
+            <div className="text-2xl font-bold text-foreground" style={{ fontFamily: 'var(--font-heading)' }}>
+              {weatherData ? `${weatherData.windSpeed} km/h` : '14 km/h'}
+            </div>
+            <span className="text-[10px] text-muted-foreground mt-1" style={{ fontFamily: 'var(--font-rajdhani)' }}>
+              Air velocity
+            </span>
+          </div>
+        </div>
+      </motion.div>
+
+      {/* WEATHER IMPACT ON DEMAND PANEL (Requirement 4 & 6) */}
+      <WeatherImpactPanel
+        area={selectedArea}
+        temperature={weatherData?.temperature || 39}
+        humidity={weatherData?.humidity || 62}
+        expectedImpact={weatherData?.demandImpact || 'High'}
+        aiInsight={weatherData?.aiInsight || 'Current weather conditions indicate a potential increase in electricity demand during upcoming peak hours.'}
+      />
+
+      {/* WEATHER VS DEMAND VISUALIZATION CHART (Requirement 5) */}
+      <WeatherVsDemandChart area={selectedArea} />
+
+      {/* Main Forecast Chart (Requirement 1 & 6) */}
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
@@ -144,24 +314,24 @@ export default function ForecastPage() {
         <div className="flex items-center justify-between mb-6">
           <div>
             <h3 className="text-lg font-semibold text-foreground flex items-center gap-2" style={{ fontFamily: 'var(--font-heading)' }}>
-              Demand Prediction Model
+              Demand Prediction Model — {selectedArea}
               <Sparkles className="w-4 h-4 text-primary" />
             </h3>
             <p className="text-sm text-muted-foreground" style={{ fontFamily: 'var(--font-rajdhani)' }}>
-              AI confidence: 94.2% | Model: GridPredict v3.1
+              AI confidence: 94.2% | Model: Weather-Integrated GridPredict v3.2
             </p>
           </div>
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
               <div className="w-3 h-3 rounded-full bg-primary" />
               <span className="text-sm text-muted-foreground" style={{ fontFamily: 'var(--font-rajdhani)' }}>
-                Predicted
+                Predicted Demand
               </span>
             </div>
             <div className="flex items-center gap-2">
               <div className="w-3 h-3 rounded-full bg-accent" />
               <span className="text-sm text-muted-foreground" style={{ fontFamily: 'var(--font-rajdhani)' }}>
-                Actual
+                Actual Load
               </span>
             </div>
           </div>
@@ -226,7 +396,7 @@ export default function ForecastPage() {
         </div>
       </motion.div>
 
-      {/* Weekly Overview */}
+      {/* Weekly Overview & AI Insights (Requirement 1) */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <motion.div
           initial={{ opacity: 0, x: -20 }}
@@ -322,10 +492,10 @@ export default function ForecastPage() {
           </div>
           <div className="flex-1">
             <h3 className="text-lg font-semibold text-foreground" style={{ fontFamily: 'var(--font-heading)' }}>
-              Peak Demand Prediction
+              Weather-Aware Peak Demand Prediction
             </h3>
             <p className="text-sm text-muted-foreground" style={{ fontFamily: 'var(--font-rajdhani)' }}>
-              Expected today at 6:00 PM based on historical patterns and current conditions
+              Expected today at 6:00 PM for {selectedArea} based on historical patterns, temperature trends, and current humidity
             </p>
           </div>
           <div className="text-right">
