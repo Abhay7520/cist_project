@@ -1,17 +1,21 @@
 import { API_URL } from './api-config'
-import { getAreaWeatherConfig, AreaWeatherConfig } from './area-weather-config'
+import { getAreaWeatherConfig, AreaWeatherConfig, AREA_WEATHER_MAP } from './area-weather-config'
 
 export interface WeatherData {
   temperature: number
   humidity: number
   precipitation: number
   windSpeed: number
+  cloudCover: number
+  visibility: number
   weatherCondition: string
   timestamp: string
   area?: string
   demandImpact?: 'Low' | 'Moderate' | 'High'
   impactScore?: number
   aiInsight?: string
+  isLive?: boolean
+  source?: string
   forecast?: Array<{
     time: string
     temperature: number
@@ -46,33 +50,148 @@ export interface WeatherAlert {
   weatherMetric: string
 }
 
+function interpretWmoCode(code: number): string {
+  if (code === 0) return 'Clear Sky'
+  if (code === 1) return 'Mainly Clear'
+  if (code === 2) return 'Partly Cloudy'
+  if (code === 3) return 'Overcast'
+  if (code >= 45 && code <= 48) return 'Foggy'
+  if (code >= 51 && code <= 55) return 'Drizzle'
+  if (code >= 61 && code <= 65) return 'Rain'
+  if (code >= 80 && code <= 82) return 'Rain Showers'
+  if (code >= 95) return 'Thunderstorm'
+  return 'Clear / Warm'
+}
+
 /**
  * Weather Service API Layer
- * Connects frontend to backend Weather endpoints while providing robust mock fallbacks
+ * Connects frontend to Live Real-World Weather (Open-Meteo) and Backend Weather endpoints,
+ * with deterministic area fallbacks for offline execution.
  */
 export class WeatherService {
   /**
-   * Fetch weather data for a given Area/Zone
+   * Derive estimated cloud cover percentage from condition string
+   */
+  static deriveCloudCover(condition: string): number {
+    const c = (condition || '').toLowerCase()
+    if (c.includes('overcast')) return 85
+    if (c.includes('cloud')) return 60
+    if (c.includes('rain') || c.includes('drizzle')) return 75
+    if (c.includes('thunder')) return 90
+    if (c.includes('clear') || c.includes('sunny')) return 5
+    return 20
+  }
+
+  /**
+   * Derive estimated visibility (in km) from condition string
+   */
+  static deriveVisibility(condition: string): number {
+    const c = (condition || '').toLowerCase()
+    if (c.includes('fog')) return 2.5
+    if (c.includes('thunder') || c.includes('rain')) return 5.0
+    if (c.includes('cloud')) return 9.0
+    return 15.0
+  }
+
+  /**
+   * Fetch original live weather data for a given Area/Zone.
+   * Prioritizes live real-world weather from Open-Meteo using the area's precise coordinates,
+   * then backend /weather endpoint, with area-aware deterministic fallback.
    */
   static async getWeatherData(area: string = 'Hyderabad'): Promise<WeatherData> {
     const config = getAreaWeatherConfig(area)
 
+    // 1. Try fetching original live weather from Open-Meteo in the client
+    if (typeof window !== 'undefined' && config.lat && config.lng) {
+      try {
+        const liveUrl = `https://api.open-meteo.com/v1/forecast?latitude=${config.lat}&longitude=${config.lng}&current=temperature_2m,relative_humidity_2m,precipitation,wind_speed_10m,cloud_cover,weather_code&hourly=temperature_2m,precipitation_probability,weather_code&forecast_days=2&timezone=auto`
+        
+        const controller = new AbortController()
+        const timeoutId = setTimeout(() => controller.abort(), 3500)
+        
+        const res = await fetch(liveUrl, { signal: controller.signal })
+        clearTimeout(timeoutId)
+
+        if (res.ok) {
+          const liveJson = await res.json()
+          if (liveJson && liveJson.current) {
+            const cur = liveJson.current
+            const liveTemp = Math.round(Number(cur.temperature_2m) * 10) / 10
+            const liveHumidity = Math.round(Number(cur.relative_humidity_2m))
+            const livePrecip = Math.round(Number(cur.precipitation || 0) * 10) / 10
+            const liveWind = Math.round(Number(cur.wind_speed_10m || 0) * 10) / 10
+            const liveCloud = cur.cloud_cover !== undefined ? Math.round(Number(cur.cloud_cover)) : this.deriveCloudCover('')
+            const liveCondition = interpretWmoCode(Number(cur.weather_code || 0))
+            const impactLevel: 'Low' | 'Moderate' | 'High' = liveTemp >= 38 ? 'High' : liveTemp >= 32 ? 'Moderate' : 'Low'
+
+            // Build hourly forecast from original API hourly points if present
+            let forecastPoints = []
+            if (liveJson.hourly && Array.isArray(liveJson.hourly.time)) {
+              const currentHour = new Date().getHours()
+              for (let i = 0; i < liveJson.hourly.time.length && forecastPoints.length < 6; i++) {
+                const hourDate = new Date(liveJson.hourly.time[i])
+                const fHour = hourDate.getHours()
+                if (fHour >= currentHour && (fHour - currentHour) % 3 === 0) {
+                  forecastPoints.push({
+                    time: `${fHour.toString().padStart(2, '0')}:00`,
+                    temperature: Math.round(Number(liveJson.hourly.temperature_2m[i]) * 10) / 10,
+                    condition: interpretWmoCode(Number(liveJson.hourly.weather_code?.[i] || 0)),
+                    precipitationProb: Math.round(Number(liveJson.hourly.precipitation_probability?.[i] || 0))
+                  })
+                }
+              }
+            }
+
+            if (forecastPoints.length === 0) {
+              forecastPoints = this.generateHourlyWeatherForecast(config)
+            }
+
+            return {
+              temperature: liveTemp,
+              humidity: liveHumidity,
+              precipitation: livePrecip,
+              windSpeed: liveWind,
+              cloudCover: liveCloud,
+              visibility: this.deriveVisibility(liveCondition),
+              weatherCondition: liveCondition,
+              timestamp: new Date().toISOString(),
+              area: area,
+              demandImpact: impactLevel,
+              impactScore: Math.round(Math.max(10, (liveTemp - 20) * 1.5)),
+              aiInsight: this.generateDefaultInsight(liveTemp, liveHumidity, area),
+              isLive: true,
+              source: 'Original Live Weather (Open-Meteo)',
+              forecast: forecastPoints
+            }
+          }
+        }
+      } catch (err) {
+        // Fall through to backend or config fallback
+      }
+    }
+
+    // 2. Try fetching from Backend /weather
     try {
       const response = await fetch(`${API_URL}/weather?area=${encodeURIComponent(area)}`)
       if (response.ok) {
         const data = await response.json()
         if (!data.error) {
+          const condition = String(data.weatherCondition ?? config.condition)
           return {
             temperature: Number(data.temperature ?? config.baseTemp),
             humidity: Number(data.humidity ?? config.baseHumidity),
             precipitation: Number(data.precipitation ?? config.baseRain),
             windSpeed: Number(data.windSpeed ?? config.baseWind),
-            weatherCondition: String(data.weatherCondition ?? config.condition),
+            cloudCover: Number(data.cloudCover ?? this.deriveCloudCover(condition)),
+            visibility: Number(data.visibility ?? this.deriveVisibility(condition)),
+            weatherCondition: condition,
             timestamp: String(data.timestamp ?? new Date().toISOString()),
             area: area,
             demandImpact: (data.demandImpact as 'Low' | 'Moderate' | 'High') || config.impactLevel,
             impactScore: data.impactScore ?? Math.round((config.baseTemp - 20) * 1.5),
             aiInsight: data.aiInsight || this.generateDefaultInsight(config.baseTemp, config.baseHumidity, area),
+            isLive: data.is_live ?? false,
+            source: data.is_live ? 'Backend Live Weather' : 'Area Climate Model',
             forecast: data.forecast || this.generateHourlyWeatherForecast(config)
           }
         }
@@ -81,18 +200,22 @@ export class WeatherService {
       console.warn(`[WeatherService] Backend connection unavailable, using area-aware simulation for '${area}'`, err)
     }
 
-    // Deterministic area-specific mock fallback
+    // 3. Deterministic area-specific mock fallback
     return {
       temperature: config.baseTemp,
       humidity: config.baseHumidity,
       precipitation: config.baseRain,
       windSpeed: config.baseWind,
+      cloudCover: this.deriveCloudCover(config.condition),
+      visibility: this.deriveVisibility(config.condition),
       weatherCondition: config.condition,
       timestamp: new Date().toISOString(),
       area: area,
       demandImpact: config.impactLevel,
       impactScore: Math.round((config.baseTemp - 20) * 1.5),
       aiInsight: this.generateDefaultInsight(config.baseTemp, config.baseHumidity, area),
+      isLive: false,
+      source: 'Area Baseline Model',
       forecast: this.generateHourlyWeatherForecast(config)
     }
   }
@@ -159,7 +282,6 @@ export class WeatherService {
 
     const temperatures = [20, 24, 28, 32, 36, 40, 44]
     return temperatures.map((temp) => {
-      // Nonlinear HVAC cooling surge at higher temps
       const coolingLoad = Math.pow(Math.max(0, temp - 22), 1.6) * 42
       const demand = Math.round(baseGridDemand + coolingLoad)
       const expectedDemand = Math.round(demand * 1.04)
@@ -177,11 +299,11 @@ export class WeatherService {
    */
   private static generateDefaultInsight(temp: number, humidity: number, area: string): string {
     if (temp >= 38) {
-      return `High temperature conditions (${temp}°C) in ${area} are increasing electricity consumption significantly, particularly during peak hours due to intense air conditioning load.`
+      return `Original high temperature (${temp}°C) in ${area} is elevating cooling consumption significantly during peak afternoon and evening hours.`
     } else if (temp >= 32) {
-      return `Moderate to high temperature (${temp}°C) and ${humidity}% humidity in ${area} is expected to drive steady HVAC cooling demand during afternoon peak hours.`
+      return `Original temperature (${temp}°C) and ${humidity}% humidity in ${area} is driving steady HVAC cooling demand across commercial and domestic sectors.`
     } else {
-      return `Mild weather conditions in ${area} are keeping baseline cooling demand within optimal operational thresholds.`
+      return `Original mild weather conditions in ${area} (${temp}°C, ${humidity}% humidity) keep baseline cooling demand within optimal operational thresholds.`
     }
   }
 
@@ -209,7 +331,7 @@ export class WeatherService {
       {
         title: 'Thermal Cooling Demand',
         impact: `+${Math.round(Math.max(0, temp - 25) * 25)} MW`,
-        description: `High ambient temperature (${temp}°C) elevates commercial and residential HVAC compressor usage.`,
+        description: `Ambient temperature (${temp}°C) elevates commercial and residential HVAC compressor usage.`,
         severity: temp > 36 ? ('high' as const) : ('medium' as const)
       },
       {

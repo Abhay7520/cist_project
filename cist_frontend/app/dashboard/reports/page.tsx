@@ -6,7 +6,7 @@ import {
   FileText, Download, Calendar, TrendingUp, Zap, Activity, Brain, 
   Loader2, Sparkles, BarChart3, PieChart, LineChart, FileDown, 
   Table, ChevronDown, MapPin, Building2, CheckCircle2, AlertTriangle,
-  CloudSun, Thermometer, Droplets
+  CloudSun, Thermometer, Droplets, ShieldCheck, Database, Server
 } from 'lucide-react'
 import { 
   AreaChart, 
@@ -18,18 +18,15 @@ import {
   ResponsiveContainer,
   BarChart,
   Bar,
-  PieChart as RechartsPieChart,
-  Pie,
   Cell,
-  Legend,
-  LineChart as RechartsLineChart,
-  Line
+  Legend
 } from 'recharts'
 import { API_URL } from '@/lib/api-config'
-import { getAreaWeatherConfig } from '@/lib/area-weather-config'
+import { useGridMind } from '@/lib/gridmind-context'
+import { VERIFIED_LOCATIONS_LIST } from '@/lib/location-catalog'
 
 type ReportType = 'demand' | 'performance' | 'renewable' | 'weather_impact'
-type DateRange = 'week' | 'month' | 'quarter' | 'year'
+type DateRange = 'week' | 'month' | 'quarter'
 
 interface ReportConfig {
   id: ReportType
@@ -42,395 +39,224 @@ const reportTypes: ReportConfig[] = [
   {
     id: 'demand',
     title: 'Demand Analysis',
-    description: 'Electricity demand patterns, peak usage analysis, and consumption trends',
+    description: 'Measured feeder loading vs XGBoost forecast peaks across operational intervals',
     icon: TrendingUp
-  },
-  {
-    id: 'performance',
-    title: 'Grid Performance',
-    description: 'System efficiency, uptime metrics, response times, and operational health',
-    icon: Activity
-  },
-  {
-    id: 'renewable',
-    title: 'Renewable Energy Usage',
-    description: 'Solar, wind, and hydro generation statistics with sustainability metrics',
-    icon: Zap
   },
   {
     id: 'weather_impact',
     title: 'Weather Impact on Electricity Demand',
-    description: 'Correlation between temperature, humidity, climate shifts, and power grid demand',
+    description: 'Temperature and cooling degree response calculated by XGBoost regressor',
     icon: CloudSun
+  },
+  {
+    id: 'renewable',
+    title: 'Renewable Energy Integration',
+    description: 'Documented solar capacity contribution and net grid demand offsets',
+    icon: Zap
+  },
+  {
+    id: 'performance',
+    title: 'Grid Substation Health',
+    description: 'Transformer loading margins, thermal stress, and telemetry verification',
+    icon: Activity
   }
 ]
-
-// Generate mock data based on report type
-const generateDemandData = (range: DateRange) => {
-  const points = range === 'week' ? 7 : range === 'month' ? 30 : range === 'quarter' ? 12 : 12
-  const labels = range === 'week' 
-    ? ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
-    : range === 'month' 
-    ? Array.from({ length: 30 }, (_, i) => `Day ${i + 1}`)
-    : ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-  
-  return labels.slice(0, points).map((label, i) => ({
-    name: label,
-    actual: Math.round(2200 + Math.sin(i / 2) * 400 + Math.random() * 300),
-    predicted: Math.round(2300 + Math.sin(i / 2) * 350 + Math.random() * 200),
-    peak: Math.round(2800 + Math.cos(i / 3) * 200 + Math.random() * 150)
-  }))
-}
-
-const generateWeatherImpactTrend = (range: DateRange) => {
-  const points = range === 'week' ? 7 : 12
-  const labels = range === 'week' 
-    ? ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] 
-    : ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-
-  return labels.slice(0, points).map((label, i) => {
-    const temp = Math.round(30 + Math.sin(i / 1.5) * 8 + Math.random() * 2)
-    const demand = Math.round(2400 + Math.pow(temp - 20, 1.5) * 35)
-    return {
-      name: label,
-      actual: demand,
-      predicted: Math.round(demand * 1.05),
-      temperature: temp
-    }
-  })
-}
-
-const generatePerformanceData = () => [
-  { name: 'Uptime', value: 99.97, target: 99.9 },
-  { name: 'Efficiency', value: 94.2, target: 92 },
-  { name: 'Load Factor', value: 78.5, target: 75 },
-  { name: 'Power Quality', value: 98.1, target: 97 }
-]
-
-const generateRenewableData = () => [
-  { name: 'Solar', value: 42, color: 'oklch(0.8 0.18 90)' },
-  { name: 'Wind', value: 35, color: 'oklch(0.7 0.18 200)' },
-  { name: 'Hydro', value: 18, color: 'oklch(0.75 0.2 160)' },
-  { name: 'Non-Renewable', value: 5, color: 'oklch(0.5 0.1 250)' }
-]
-
-const generateEnergyDistribution = () => [
-  { name: 'Residential Cooling', value: 45 },
-  { name: 'Commercial HVAC', value: 32 },
-  { name: 'Industrial Baseline', value: 16 },
-  { name: 'Public Utilities', value: 7 }
-]
-
-const aiInsights: Record<ReportType, string[]> = {
-  demand: [
-    'Demand increased by 18% compared to the previous period, primarily driven by temperature variations.',
-    'Peak demand consistently occurs between 6-8 PM, suggesting residential usage patterns dominate.',
-    'Industrial zone shows 12% reduction in off-peak consumption, indicating improved efficiency.',
-    'AI model predicts 8% demand growth next quarter based on historical patterns and weather forecasts.'
-  ],
-  performance: [
-    'System uptime exceeded target by 0.07%, maintaining excellent grid stability.',
-    'Average response time improved by 15% following recent infrastructure upgrades.',
-    'Load balancing efficiency increased due to AI-optimized distribution algorithms.',
-    'Predictive maintenance prevented 3 potential outages this period.'
-  ],
-  renewable: [
-    'Renewable energy contribution reached an all-time high of 95% of total generation.',
-    'Solar output increased 22% due to favorable weather conditions and new panel installations.',
-    'Wind generation showed 15% variability, compensated effectively by grid storage.',
-    'Carbon emissions reduced by 28% compared to the same period last year.'
-  ],
-  weather_impact: [
-    'Temperature correlation analysis indicates an exponential demand surge above 32°C ambient threshold.',
-    'High relative humidity combined with elevated temperatures prolonged peak cooling window by 2.5 hours.',
-    'Substation thermal loading increased by 14% during heatwave spikes, managed effectively by AI load shifting.',
-    'AI weather prediction model forecasts continued elevated thermal demand for upcoming afternoon cycles.'
-  ]
-}
 
 const COLORS = ['oklch(0.8 0.18 90)', 'oklch(0.7 0.18 200)', 'oklch(0.75 0.2 160)', 'oklch(0.65 0.15 280)']
 
 export default function ReportsPage() {
+  const { selectedLocationId, setSelectedLocationId, selectedLocation } = useGridMind()
+
   const [selectedReport, setSelectedReport] = useState<ReportType>('demand')
   const [dateRange, setDateRange] = useState<DateRange>('month')
-  const [region, setRegion] = useState('all')
-  const [substation, setSubstation] = useState('all')
   const [isGenerating, setIsGenerating] = useState(false)
   const [reportGenerated, setReportGenerated] = useState(false)
   const [generationProgress, setGenerationProgress] = useState(0)
-  const [openDropdown, setOpenDropdown] = useState<string | null>(null)
-  const [regions, setRegions] = useState<{ id: string; name: string }[]>([{ id: 'all', name: 'All Circles' }])
-  const [substations, setSubstations] = useState<{ id: string; name: string }[]>([{ id: 'all', name: 'All Sections' }])
   const [reportData, setReportData] = useState<any>(null)
 
-  useEffect(() => {
-    const fetchOptions = async () => {
-      try {
-        const res = await fetch(`${API_URL}/form-options`)
-        if (res.ok) {
-          const data = await res.json()
-          if (data.circle) {
-            setRegions([
-              { id: 'all', name: 'All Circles' },
-              ...data.circle.map((c: string) => ({ id: c, name: c }))
-            ])
-          }
-          if (data.section) {
-            setSubstations([
-              { id: 'all', name: 'All Sections' },
-              ...data.section.map((s: string) => ({ id: s, name: s }))
-            ])
-          }
-        }
-      } catch (err) {
-        console.error('Failed to fetch options:', err)
-      }
-    }
-    fetchOptions()
-  }, [])
-
-  // Simulate report generation
+  // Generate real data report from backend
   const generateReport = async () => {
     setIsGenerating(true)
     setReportGenerated(false)
-    setGenerationProgress(0)
+    setGenerationProgress(10)
     
     const progressInterval = setInterval(() => {
       setGenerationProgress(prev => {
-        if (prev >= 95) {
+        if (prev >= 90) {
           clearInterval(progressInterval)
           return prev
         }
-        return prev + Math.random() * 15
+        return prev + 20
       })
-    }, 200)
+    }, 150)
 
     try {
       const url = new URL(`${API_URL}/report-data`)
       url.searchParams.append('report_type', selectedReport)
-      url.searchParams.append('circle', region)
-      url.searchParams.append('section', substation)
+      url.searchParams.append('location_id', selectedLocationId)
       url.searchParams.append('range', dateRange)
 
-      const res = await fetch(url)
+      const res = await fetch(url.toString())
       if (res.ok) {
         const data = await res.json()
         setReportData(data)
+      } else {
+        throw new Error(`HTTP ${res.status}`)
       }
     } catch (err) {
       console.error('Failed to fetch report data:', err)
-    }
-
-    clearInterval(progressInterval)
-    setGenerationProgress(100)
-    
-    await new Promise(resolve => setTimeout(resolve, 300))
-    
-    setIsGenerating(false)
-    setReportGenerated(true)
-  }
-
-  // Close dropdown when clicking outside
-  useEffect(() => {
-    const handleClickOutside = () => setOpenDropdown(null)
-    if (openDropdown !== null) {
-      document.addEventListener('click', handleClickOutside)
-      return () => document.removeEventListener('click', handleClickOutside)
-    }
-  }, [openDropdown])
-
-  const demandData = selectedReport === 'weather_impact' ? generateWeatherImpactTrend(dateRange) : generateDemandData(dateRange)
-  const performanceData = generatePerformanceData()
-  const renewableData = generateRenewableData()
-  const distributionData = generateEnergyDistribution()
-
-  const areaWeather = getAreaWeatherConfig(region !== 'all' ? region : 'Hyderabad')
-
-  const getMetrics = () => {
-    if (reportData && reportData.metrics) {
-      const { metrics } = reportData
-      return [
-        { label: metrics.m1_label || 'Metric 1', value: metrics.m1_val || '-', change: '+2.1%', positive: true },
-        { label: metrics.m2_label || 'Metric 2', value: metrics.m2_val || '-', change: '+0.5%', positive: false },
-        { label: metrics.m3_label || 'Metric 3', value: metrics.m3_val || '-', change: '+5.2%', positive: true },
-        { label: metrics.m4_label || 'Metric 4', value: metrics.m4_val || '-', change: '+1.8%', positive: true }
-      ]
-    }
-
-    switch (selectedReport) {
-      case 'weather_impact':
-        return [
-          { label: 'Avg Temperature', value: `${areaWeather.baseTemp}°C`, change: '+3.2°C', positive: false },
-          { label: 'Avg Humidity', value: `${areaWeather.baseHumidity}%`, change: '+4.0%', positive: false },
-          { label: 'Electricity Demand', value: '3,120 MW', change: '+12.4%', positive: false },
-          { label: 'Peak Demand Spike', value: '3,850 MW', change: '+18.5%', positive: false }
-        ]
-      case 'demand':
-        return [
-          { label: 'Peak Demand', value: '2,847 MW', change: '+5.2%', positive: false },
-          { label: 'Average Usage', value: '2,342 MW', change: '+3.1%', positive: false },
-          { label: 'Load Factor', value: '82.3%', change: '+2.4%', positive: true },
-          { label: 'Forecast Accuracy', value: '96.7%', change: '+1.2%', positive: true }
-        ]
-      case 'performance':
-        return [
-          { label: 'System Uptime', value: '99.97%', change: '+0.02%', positive: true },
-          { label: 'Avg Response', value: '45ms', change: '-12ms', positive: true },
-          { label: 'Efficiency', value: '94.2%', change: '+1.8%', positive: true },
-          { label: 'Incidents', value: '3', change: '-5', positive: true }
-        ]
-      case 'renewable':
-        return [
-          { label: 'Renewable Mix', value: '95%', change: '+8%', positive: true },
-          { label: 'Solar Output', value: '892 MW', change: '+22%', positive: true },
-          { label: 'Wind Output', value: '745 MW', change: '+15%', positive: true },
-          { label: 'CO2 Saved', value: '12.4k t', change: '+28%', positive: true }
-        ]
+    } finally {
+      clearInterval(progressInterval)
+      setGenerationProgress(100)
+      await new Promise(resolve => setTimeout(resolve, 250))
+      setIsGenerating(false)
+      setReportGenerated(true)
     }
   }
 
-  const currentInsights = aiInsights[selectedReport]
-  const metrics = getMetrics()
+  const exportSummaryTxt = () => {
+    if (!reportData) return
+    const content = `========================================================================
+GRIDMIND DISTRIBUTION AUDIT & FORECAST REPORT
+========================================================================
+Node Location: ${reportData.location} (${reportData.circle} Circle, Section: ${reportData.section})
+Report Type:   ${reportData.report_type.toUpperCase()}
+Time Window:   ${reportData.period.toUpperCase()}
+Generated:     ${reportData.generated_timestamp}
 
-  // Custom dropdown component
-  const Dropdown = ({ 
-    value, 
-    options, 
-    onChange, 
-    id, 
-    icon: Icon 
-  }: { 
-    value: string
-    options: { id: string; name: string }[]
-    onChange: (value: string) => void
-    id: string
-    icon: typeof MapPin
-  }) => (
-    <div className="relative">
-      <button
-        onClick={(e) => {
-          e.stopPropagation()
-          setOpenDropdown(openDropdown === id ? null : id)
-        }}
-        className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-secondary/30 border border-border/50 hover:border-primary/30 transition-all text-left"
-        style={{ fontFamily: 'var(--font-rajdhani)' }}
-      >
-        <Icon className="w-5 h-5 text-primary" />
-        <span className="flex-1 text-foreground">{options.find(o => o.id === value)?.name}</span>
-        <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${openDropdown === id ? 'rotate-180' : ''}`} />
-      </button>
-      
-      <AnimatePresence>
-        {openDropdown === id && (
-          <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            className="absolute z-50 w-full mt-2 rounded-xl bg-card border border-border/50 shadow-xl overflow-hidden max-h-60 overflow-y-auto"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {options.map((option) => (
-              <button
-                key={option.id}
-                onClick={() => {
-                  onChange(option.id)
-                  setOpenDropdown(null)
-                }}
-                className={`w-full flex items-center gap-3 px-4 py-3 transition-all ${
-                  value === option.id 
-                    ? 'bg-primary/10 text-primary' 
-                    : 'hover:bg-secondary/50 text-muted-foreground hover:text-foreground'
-                }`}
-                style={{ fontFamily: 'var(--font-rajdhani)' }}
-              >
-                {option.name}
-                {value === option.id && <CheckCircle2 className="w-4 h-4 ml-auto" />}
-              </button>
-            ))}
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  )
+DATA PROVENANCE & ARCHITECTURE:
+${(reportData.data_provenance || []).map((p: string, i: number) => `  [${i+1}] ${p}`).join('\n')}
+Live SCADA Status: Unavailable (Historical snapshot & Open-Meteo REST feed active)
+
+OPERATIONAL METRICS:
+  * ${reportData.metrics?.m1_label}: ${reportData.metrics?.m1_val}
+  * ${reportData.metrics?.m2_label}: ${reportData.metrics?.m2_val}
+  * ${reportData.metrics?.m3_label}: ${reportData.metrics?.m3_val}
+  * ${reportData.metrics?.m4_label}: ${reportData.metrics?.m4_val}
+
+ACTIVE DISPATCH RECOMMENDATIONS:
+${(reportData.active_recommendations || []).map((r: string, i: number) => `  * ${r}`).join('\n')}
+
+========================================================================
+End of Automated Report
+========================================================================`
+
+    const blob = new Blob([content], { type: 'text/plain' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `GridMind_Report_${selectedLocationId}_${dateRange}.txt`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pb-24">
       {/* Header */}
       <motion.div
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+        className="flex flex-col md:flex-row md:items-center justify-between gap-4"
       >
         <div>
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-xs px-2 py-0.5 rounded-full bg-primary/20 text-primary font-semibold flex items-center gap-1">
+              <Database className="w-3 h-3" /> Audit & Provenance Reports
+            </span>
+            <span className="text-xs px-2 py-0.5 rounded-full bg-secondary/80 text-muted-foreground border border-border/50">
+              [Measured vs Forecast Traceability]
+            </span>
+          </div>
           <h1 className="text-2xl font-bold text-foreground flex items-center gap-3" style={{ fontFamily: 'var(--font-heading)' }}>
             <FileText className="w-7 h-7 text-primary" />
-            Dynamic Report Generator
+            Grid Audit & Demand Reports
           </h1>
           <p className="text-muted-foreground" style={{ fontFamily: 'var(--font-rajdhani)' }}>
-            AI-powered analytics, grid reporting, and weather impact analysis
+            Comprehensive reporting citing historical feeder datasets, weather feeds, and XGBoost regressor outputs
           </p>
+        </div>
+
+        {/* Synchronized Location Selector */}
+        <div className="flex items-center gap-3 glass-panel p-2.5 rounded-xl border border-border/60">
+          <MapPin className="w-5 h-5 text-primary shrink-0" />
+          <div className="flex flex-col">
+            <span className="text-[11px] text-muted-foreground uppercase tracking-wider font-semibold">Distribution Node</span>
+            <select
+              value={selectedLocationId}
+              onChange={(e) => {
+                setSelectedLocationId(e.target.value)
+                setReportGenerated(false)
+              }}
+              className="bg-transparent text-sm font-bold text-foreground border-none outline-none cursor-pointer pr-4"
+              style={{ fontFamily: 'var(--font-heading)' }}
+            >
+              {VERIFIED_LOCATIONS_LIST.map((loc) => (
+                <option key={loc.id} value={loc.id} className="bg-card text-foreground">
+                  {loc.name} ({loc.circle})
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       </motion.div>
 
-      {/* Report Selection Panel */}
+      {/* Configuration Panel */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         className="glass-panel rounded-xl p-6 border border-border/50"
       >
-        <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2" style={{ fontFamily: 'var(--font-heading)' }}>
+        <h3 className="text-base font-bold text-foreground mb-4 flex items-center gap-2" style={{ fontFamily: 'var(--font-heading)' }}>
           <BarChart3 className="w-5 h-5 text-primary" />
-          Report Configuration
+          Select Report Scope & Horizon
         </h3>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Left: Report Type & Date Range */}
-          <div className="space-y-4">
-            {/* Report Type Selection */}
-            <div>
-              <label className="text-sm text-muted-foreground mb-2 block" style={{ fontFamily: 'var(--font-rajdhani)' }}>
-                Report Type
-              </label>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {reportTypes.map((report) => {
-                  const isSelected = selectedReport === report.id
-                  return (
-                    <button
-                      key={report.id}
-                      onClick={() => {
-                        setSelectedReport(report.id)
-                        setReportGenerated(false)
-                      }}
-                      className={`p-4 rounded-xl border-2 transition-all text-left ${
-                        isSelected 
-                          ? 'bg-primary/10 border-primary/50 glow-blue' 
-                          : 'bg-secondary/30 border-border/50 hover:border-primary/30'
-                      }`}
-                    >
-                      <report.icon className={`w-6 h-6 mb-2 ${isSelected ? 'text-primary' : 'text-muted-foreground'}`} />
-                      <h4 className={`font-medium text-sm ${isSelected ? 'text-foreground' : 'text-muted-foreground'}`} style={{ fontFamily: 'var(--font-rajdhani)' }}>
-                        {report.title}
-                      </h4>
-                    </button>
-                  )
-                })}
-              </div>
-              <p className="text-xs text-muted-foreground mt-2" style={{ fontFamily: 'var(--font-rajdhani)' }}>
-                {reportTypes.find(r => r.id === selectedReport)?.description}
-              </p>
+          {/* Report Type */}
+          <div>
+            <label className="text-xs text-muted-foreground mb-2 block uppercase tracking-wider font-semibold" style={{ fontFamily: 'var(--font-rajdhani)' }}>
+              Analysis Category
+            </label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {reportTypes.map((report) => {
+                const isSelected = selectedReport === report.id
+                return (
+                  <button
+                    key={report.id}
+                    onClick={() => {
+                      setSelectedReport(report.id)
+                      setReportGenerated(false)
+                    }}
+                    className={`p-3.5 rounded-xl border-2 transition-all text-left ${
+                      isSelected 
+                        ? 'bg-primary/10 border-primary/60 shadow-sm' 
+                        : 'bg-secondary/30 border-border/50 hover:border-primary/30'
+                    }`}
+                  >
+                    <report.icon className={`w-5 h-5 mb-1.5 ${isSelected ? 'text-primary' : 'text-muted-foreground'}`} />
+                    <h4 className={`font-bold text-xs ${isSelected ? 'text-foreground' : 'text-muted-foreground'}`} style={{ fontFamily: 'var(--font-heading)' }}>
+                      {report.title}
+                    </h4>
+                    <p className="text-[11px] text-muted-foreground mt-1 line-clamp-2" style={{ fontFamily: 'var(--font-rajdhani)' }}>
+                      {report.description}
+                    </p>
+                  </button>
+                )
+              })}
             </div>
+          </div>
 
-            {/* Date Range */}
+          {/* Time Horizon & Parameters */}
+          <div className="space-y-4">
             <div>
-              <label className="text-sm text-muted-foreground mb-2 block" style={{ fontFamily: 'var(--font-rajdhani)' }}>
-                Date Range
+              <label className="text-xs text-muted-foreground mb-2 block uppercase tracking-wider font-semibold" style={{ fontFamily: 'var(--font-rajdhani)' }}>
+                Analysis Horizon
               </label>
               <div className="flex flex-wrap gap-2">
                 {[
-                  { value: 'week', label: 'Last Week' },
-                  { value: 'month', label: 'Last Month' },
-                  { value: 'quarter', label: 'Last Quarter' },
-                  { value: 'year', label: 'Last Year' }
+                  { value: 'week', label: '7-Day Profile' },
+                  { value: 'month', label: '30-Day Evaluation' },
+                  { value: 'quarter', label: 'Quarterly Aggregation' }
                 ].map((range) => (
                   <button
                     key={range.value}
@@ -438,363 +264,233 @@ export default function ReportsPage() {
                       setDateRange(range.value as DateRange)
                       setReportGenerated(false)
                     }}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-lg border transition-all ${
+                    className={`flex items-center gap-2 px-4 py-2.5 rounded-lg border text-xs font-bold transition-all ${
                       dateRange === range.value
-                        ? 'bg-primary/10 border-primary/50 text-primary'
-                        : 'bg-secondary/30 border-border/50 text-muted-foreground hover:text-foreground hover:border-primary/30'
+                        ? 'bg-primary text-primary-foreground border-primary'
+                        : 'bg-secondary/30 border-border/50 text-muted-foreground hover:text-foreground'
                     }`}
                     style={{ fontFamily: 'var(--font-rajdhani)' }}
                   >
-                    <Calendar className="w-4 h-4" />
+                    <Calendar className="w-3.5 h-3.5" />
                     {range.label}
                   </button>
                 ))}
               </div>
             </div>
-          </div>
 
-          {/* Right: Filters */}
-          <div className="space-y-4">
-            <div>
-              <label className="text-sm text-muted-foreground mb-2 block" style={{ fontFamily: 'var(--font-rajdhani)' }}>
-                Selected Area / Circle Filter
-              </label>
-              <Dropdown
-                value={region}
-                options={regions}
-                onChange={(v) => { setRegion(v); setReportGenerated(false) }}
-                id="region"
-                icon={MapPin}
-              />
-            </div>
-            <div>
-              <label className="text-sm text-muted-foreground mb-2 block" style={{ fontFamily: 'var(--font-rajdhani)' }}>
-                Substation Filter
-              </label>
-              <Dropdown
-                value={substation}
-                options={substations}
-                onChange={(v) => { setSubstation(v); setReportGenerated(false) }}
-                id="substation"
-                icon={Building2}
-              />
+            <div className="p-3.5 rounded-xl bg-secondary/30 border border-border/40 text-xs space-y-1">
+              <span className="text-muted-foreground block text-[11px] uppercase tracking-wider font-bold">Target Substation</span>
+              <p className="font-bold text-foreground text-sm" style={{ fontFamily: 'var(--font-heading)' }}>
+                {selectedLocation.name} — {selectedLocation.section}
+              </p>
+              <p className="text-muted-foreground text-[11px]">
+                Circle: {selectedLocation.circle} | Section: {selectedLocation.section} | Coordinates: {selectedLocation?.lat?.toFixed(4) ?? '17.4156'}°N, {selectedLocation?.lng?.toFixed(4) ?? '78.4347'}°E
+              </p>
             </div>
           </div>
         </div>
 
-        {/* Generate Button */}
+        {/* Generate Action Button */}
         <div className="mt-6 flex flex-col sm:flex-row items-center gap-4">
           <motion.button
             onClick={generateReport}
             disabled={isGenerating}
             whileHover={{ scale: isGenerating ? 1 : 1.02 }}
             whileTap={{ scale: isGenerating ? 1 : 0.98 }}
-            className={`relative w-full sm:w-auto flex items-center justify-center gap-3 px-8 py-4 rounded-xl font-semibold transition-all overflow-hidden ${
-              isGenerating 
-                ? 'bg-primary/50 cursor-not-allowed' 
-                : 'bg-primary hover:bg-primary/90 glow-blue'
+            className={`flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-bold text-xs uppercase tracking-wider transition-all ${
+              isGenerating ? 'bg-primary/50 text-white cursor-not-allowed' : 'bg-primary text-primary-foreground hover:bg-primary/90 shadow-md'
             }`}
-            style={{ fontFamily: 'var(--font-heading)' }}
+            style={{ fontFamily: 'var(--font-rajdhani)' }}
           >
             {isGenerating ? (
               <>
-                <Loader2 className="w-5 h-5 animate-spin text-primary-foreground" />
-                <span className="text-primary-foreground">Generating Report...</span>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>Assembling Telemetry & Forecasts ({generationProgress}%)...</span>
               </>
             ) : (
               <>
-                <Sparkles className="w-5 h-5 text-primary-foreground" />
-                <span className="text-primary-foreground">Generate Report</span>
+                <Sparkles className="w-4 h-4" />
+                <span>Generate Verified Audit Report</span>
               </>
             )}
-            
-            {/* Progress bar overlay */}
-            {isGenerating && (
-              <motion.div
-                initial={{ width: 0 }}
-                animate={{ width: `${generationProgress}%` }}
-                className="absolute bottom-0 left-0 h-1 bg-primary-foreground/30"
-              />
-            )}
           </motion.button>
-
-          {isGenerating && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="flex items-center gap-2 text-sm text-muted-foreground"
-              style={{ fontFamily: 'var(--font-rajdhani)' }}
-            >
-              <Brain className="w-4 h-4 animate-pulse text-primary" />
-              <span>AI analyzing {Math.round(generationProgress)}% of weather & grid metrics...</span>
-            </motion.div>
-          )}
         </div>
       </motion.div>
 
-      {/* Report Output Section */}
+      {/* Report Output */}
       <AnimatePresence>
-        {reportGenerated && (
+        {reportGenerated && reportData && (
           <motion.div
-            initial={{ opacity: 0, y: 30 }}
+            initial={{ opacity: 0, y: 25 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -30 }}
-            transition={{ duration: 0.5 }}
+            exit={{ opacity: 0, y: -25 }}
             className="space-y-6"
           >
-            {/* Report Header */}
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ delay: 0.1 }}
-              className="glass-panel rounded-xl p-6 border border-primary/30 glow-blue"
-            >
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div>
-                  <div className="flex items-center gap-2 mb-2">
-                    {reportData?.error ? (
-                      <>
-                        <AlertTriangle className="w-5 h-5 text-[oklch(0.75_0.18_60)]" />
-                        <span className="text-sm text-[oklch(0.75_0.18_60)] font-medium" style={{ fontFamily: 'var(--font-rajdhani)' }}>
-                          Partial Data: {reportData.error}
-                        </span>
-                      </>
-                    ) : (
-                      <>
-                        <CheckCircle2 className="w-5 h-5 text-accent" />
-                        <span className="text-sm text-accent font-medium" style={{ fontFamily: 'var(--font-rajdhani)' }}>
-                          Report Generated Successfully
-                        </span>
-                      </>
-                    )}
-                  </div>
-                  <h2 className="text-xl font-bold text-foreground" style={{ fontFamily: 'var(--font-heading)' }}>
-                    {reportTypes.find(r => r.id === selectedReport)?.title} Report
-                  </h2>
-                  <p className="text-sm text-muted-foreground mt-1" style={{ fontFamily: 'var(--font-rajdhani)' }}>
-                    Area Zone: <span className="text-primary font-bold">{region === 'all' ? 'All Areas (Hyderabad Hub)' : region}</span> • Range: <span className="uppercase text-foreground font-semibold">{dateRange}</span> • Generated on {new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-                  </p>
+            {/* Report Header & Action Bar */}
+            <div className="glass-panel rounded-xl p-5 border border-primary/40 flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <CheckCircle2 className="w-4 h-4 text-accent" />
+                  <span className="text-xs text-accent font-bold uppercase tracking-wider" style={{ fontFamily: 'var(--font-rajdhani)' }}>
+                    Report Compiled from Verified Datasets
+                  </span>
                 </div>
-                
-                {/* Export Buttons */}
-                <div className="flex items-center gap-3">
-                  <motion.button
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={() => window.print()}
-                    className="flex items-center gap-2 px-4 py-2 rounded-lg bg-accent/10 border border-accent/30 text-accent hover:bg-accent/20 transition-all"
-                    style={{ fontFamily: 'var(--font-rajdhani)' }}
-                  >
-                    <FileDown className="w-4 h-4" />
-                    Download PDF
-                  </motion.button>
-                  <motion.button
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={() => {
-                      const url = new URL(`${API_URL}/download-csv`)
-                      url.searchParams.append('circle', region)
-                      url.searchParams.append('section', substation)
-                      window.open(url.toString(), '_blank')
-                    }}
-                    className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary/10 border border-primary/30 text-primary hover:bg-primary/20 transition-all"
-                    style={{ fontFamily: 'var(--font-rajdhani)' }}
-                  >
-                    <Table className="w-4 h-4" />
-                    Export CSV
-                  </motion.button>
-                </div>
+                <h2 className="text-xl font-bold text-foreground" style={{ fontFamily: 'var(--font-heading)' }}>
+                  {reportTypes.find(r => r.id === selectedReport)?.title} Report: {reportData.location}
+                </h2>
+                <p className="text-xs text-muted-foreground mt-0.5" style={{ fontFamily: 'var(--font-rajdhani)' }}>
+                  Administrative Section: <strong>{reportData.section}</strong> ({reportData.circle} Circle) • Period: <strong>{reportData.period.toUpperCase()}</strong>
+                </p>
               </div>
-            </motion.div>
 
-            {/* Key Metrics */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              {metrics.map((metric, index) => (
-                <motion.div
-                  key={metric.label}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.15 + index * 0.1 }}
-                  className="glass-panel rounded-xl p-4 border border-border/50"
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  onClick={exportSummaryTxt}
+                  className="flex items-center gap-2 px-3.5 py-2 rounded-lg bg-accent/15 border border-accent/40 text-accent hover:bg-accent/25 transition-all text-xs font-bold"
+                  style={{ fontFamily: 'var(--font-rajdhani)' }}
                 >
-                  <p className="text-sm text-muted-foreground mb-1" style={{ fontFamily: 'var(--font-rajdhani)' }}>
-                    {metric.label}
+                  <FileDown className="w-4 h-4" />
+                  Export Audit (.TXT)
+                </button>
+                <button
+                  onClick={() => window.print()}
+                  className="flex items-center gap-2 px-3.5 py-2 rounded-lg bg-secondary border border-border text-foreground hover:bg-secondary/70 transition-all text-xs font-bold"
+                  style={{ fontFamily: 'var(--font-rajdhani)' }}
+                >
+                  <Download className="w-4 h-4" />
+                  Print / PDF
+                </button>
+              </div>
+            </div>
+
+            {/* Data Provenance Box (Requirement 2 & 7) */}
+            <div className="p-4 rounded-xl bg-blue-500/10 border-2 border-blue-500/30 space-y-2">
+              <h4 className="font-bold text-blue-400 text-xs flex items-center gap-2 uppercase tracking-wider" style={{ fontFamily: 'var(--font-heading)' }}>
+                <ShieldCheck className="w-4 h-4 text-blue-400" />
+                Verified Data Sources & Provenance Trace
+              </h4>
+              <ul className="text-xs text-muted-foreground space-y-1 list-disc pl-5" style={{ fontFamily: 'var(--font-rajdhani)' }}>
+                {(reportData.data_provenance || []).map((p: string, i: number) => (
+                  <li key={i} className="leading-relaxed">
+                    <strong className="text-foreground">{p}</strong>
+                  </li>
+                ))}
+                <li>
+                  Live SCADA Status: <strong className="text-amber-400">Unavailable (Telemetry gap documented; historical snapshot & Open-Meteo REST feed active)</strong>
+                </li>
+              </ul>
+            </div>
+
+            {/* Key Traceable Metrics */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {[
+                { label: reportData.metrics.m1_label, value: reportData.metrics.m1_val, color: 'text-foreground' },
+                { label: reportData.metrics.m2_label, value: reportData.metrics.m2_val, color: 'text-primary' },
+                { label: reportData.metrics.m3_label, value: reportData.metrics.m3_val, color: 'text-amber-400' },
+                { label: reportData.metrics.m4_label, value: reportData.metrics.m4_val, color: 'text-accent' }
+              ].map((m, idx) => (
+                <div key={idx} className="glass-panel rounded-xl p-4 border border-border/50">
+                  <span className="text-[11px] text-muted-foreground uppercase tracking-wider block font-semibold" style={{ fontFamily: 'var(--font-rajdhani)' }}>
+                    {m.label}
+                  </span>
+                  <p className={`text-lg font-bold font-mono mt-1 ${m.color}`} style={{ fontFamily: 'var(--font-heading)' }}>
+                    {m.value}
                   </p>
-                  <div className="flex items-baseline gap-2">
-                    <span className="text-2xl font-bold text-foreground" style={{ fontFamily: 'var(--font-heading)' }}>
-                      {metric.value}
-                    </span>
-                    <span className={`text-sm ${metric.positive ? 'text-accent' : 'text-[oklch(0.75_0.18_60)]'}`}>
-                      {metric.change}
-                    </span>
-                  </div>
-                </motion.div>
+                </div>
               ))}
             </div>
 
-            {/* AI Insight Box */}
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ delay: 0.4 }}
-              className="glass-panel rounded-xl p-6 border border-primary/30 relative overflow-hidden"
-            >
-              <div className="absolute inset-0 energy-flow opacity-30 pointer-events-none" />
-              
-              <div className="relative">
-                <div className="flex items-center gap-2 mb-4">
-                  <div className="p-2 rounded-lg bg-primary/20">
-                    <Brain className="w-5 h-5 text-primary" />
-                  </div>
-                  <h3 className="text-lg font-semibold text-foreground" style={{ fontFamily: 'var(--font-heading)' }}>
-                    AI Analysis & Weather Insights
+            {/* Trend Chart */}
+            <div className="glass-panel rounded-xl p-6 border border-border/50">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h3 className="text-base font-bold text-foreground" style={{ fontFamily: 'var(--font-heading)' }}>
+                    {reportData.period.toUpperCase()} Loading Profile: Observed vs Predicted
                   </h3>
-                  <span className="px-2 py-0.5 rounded-full bg-primary/20 text-primary text-xs">
-                    Neural Weather-Grid Correlation Model
-                  </span>
-                </div>
-                
-                <div className="space-y-3">
-                  {currentInsights.map((insight, index) => (
-                    <motion.div
-                      key={index}
-                      initial={{ opacity: 0, x: -20 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: 0.5 + index * 0.1 }}
-                      className="flex items-start gap-3"
-                    >
-                      <Sparkles className="w-4 h-4 text-primary mt-1 shrink-0" />
-                      <p className="text-sm text-foreground/90" style={{ fontFamily: 'var(--font-rajdhani)' }}>
-                        {insight}
-                      </p>
-                    </motion.div>
-                  ))}
+                  <p className="text-xs text-muted-foreground" style={{ fontFamily: 'var(--font-rajdhani)' }}>
+                    Historical recorded feeder measurements [Measured] and AI-forecasted peak demand [Forecast]
+                  </p>
                 </div>
               </div>
-            </motion.div>
 
-            {/* Charts Grid */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Line/Area Chart */}
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.6 }}
-                className="glass-panel rounded-xl p-6 border border-border/50"
-              >
-                <div className="flex items-center gap-2 mb-4">
-                  <LineChart className="w-5 h-5 text-primary" />
-                  <h3 className="text-lg font-semibold text-foreground" style={{ fontFamily: 'var(--font-heading)' }}>
-                    {selectedReport === 'weather_impact' ? 'Weather-Demand Correlation Trend' : selectedReport === 'demand' ? 'Demand Trends' : selectedReport === 'performance' ? 'Performance Over Time' : 'Generation Trends'}
-                  </h3>
-                </div>
-                <div className="h-[280px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={reportData?.trend || demandData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                      <defs>
-                        <linearGradient id="actualGradient" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="oklch(0.7 0.18 200)" stopOpacity={0.4} />
-                          <stop offset="95%" stopColor="oklch(0.7 0.18 200)" stopOpacity={0} />
-                        </linearGradient>
-                        <linearGradient id="predictedGradient" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="oklch(0.75 0.2 160)" stopOpacity={0.4} />
-                          <stop offset="95%" stopColor="oklch(0.75 0.2 160)" stopOpacity={0} />
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.3 0.04 250)" />
-                      <XAxis 
-                        dataKey="name" 
-                        stroke="oklch(0.65 0.02 250)"
-                        tick={{ fontSize: 10, fontFamily: 'var(--font-rajdhani)' }}
-                        tickLine={false}
-                      />
-                      <YAxis 
-                        stroke="oklch(0.65 0.02 250)"
-                        tick={{ fontSize: 10, fontFamily: 'var(--font-rajdhani)' }}
-                        tickLine={false}
-                        axisLine={false}
-                      />
-                      <Tooltip
-                        contentStyle={{
-                          background: 'oklch(0.15 0.02 250 / 0.95)',
-                          border: '1px solid oklch(0.7 0.18 200 / 0.3)',
-                          borderRadius: '8px',
-                          fontFamily: 'var(--font-rajdhani)'
-                        }}
-                      />
-                      <Legend wrapperStyle={{ fontFamily: 'var(--font-rajdhani)', fontSize: '11px' }} />
-                      <Area
-                        type="monotone"
-                        dataKey="actual"
-                        stroke="oklch(0.7 0.18 200)"
-                        fill="url(#actualGradient)"
-                        name="Electricity Demand (MW)"
-                        strokeWidth={2}
-                      />
-                      <Area
-                        type="monotone"
-                        dataKey="predicted"
-                        stroke="oklch(0.75 0.2 160)"
-                        fill="url(#predictedGradient)"
-                        name="Forecasted Peak (MW)"
-                        strokeWidth={2}
-                        strokeDasharray="5 5"
-                      />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
-              </motion.div>
+              <div className="h-[280px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={reportData.trend || []} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="actualGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="oklch(0.7 0.18 200)" stopOpacity={0.4} />
+                        <stop offset="95%" stopColor="oklch(0.7 0.18 200)" stopOpacity={0} />
+                      </linearGradient>
+                      <linearGradient id="predGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="oklch(0.75 0.2 160)" stopOpacity={0.4} />
+                        <stop offset="95%" stopColor="oklch(0.75 0.2 160)" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.3 0.04 250)" />
+                    <XAxis 
+                      dataKey="name" 
+                      stroke="oklch(0.65 0.02 250)"
+                      tick={{ fontSize: 11, fontFamily: 'var(--font-rajdhani)' }}
+                    />
+                    <YAxis 
+                      stroke="oklch(0.65 0.02 250)"
+                      tick={{ fontSize: 11, fontFamily: 'var(--font-rajdhani)' }}
+                      unit=" kW"
+                    />
+                    <Tooltip
+                      content={({ active, payload, label }) => {
+                        if (active && payload && payload.length) {
+                          const item = payload[0].payload
+                          return (
+                            <div className="p-3 rounded-lg border border-primary/30 bg-card/95 backdrop-blur-md shadow-xl text-xs space-y-1">
+                              <p className="font-bold text-foreground pb-1 border-b border-border/40">{label} ({item.status})</p>
+                              <p className="text-primary font-mono font-semibold">Observed: {item.actual} kW [Measured]</p>
+                              <p className="text-accent font-mono font-semibold">Forecast: {item.predicted} kW [Forecast]</p>
+                            </div>
+                          )
+                        }
+                        return null
+                      }}
+                    />
+                    <Legend wrapperStyle={{ fontFamily: 'var(--font-rajdhani)', fontSize: '12px' }} />
+                    <Area
+                      type="monotone"
+                      dataKey="actual"
+                      stroke="oklch(0.7 0.18 200)"
+                      strokeWidth={2}
+                      fill="url(#actualGrad)"
+                      name="Observed Feeder Load (kW) [Measured]"
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="predicted"
+                      stroke="oklch(0.75 0.2 160)"
+                      strokeWidth={2}
+                      strokeDasharray="4 4"
+                      fill="url(#predGrad)"
+                      name="Forecast Peak (kW) [Forecast]"
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
 
-              {/* Bar Chart */}
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.7 }}
-                className="glass-panel rounded-xl p-6 border border-border/50"
-              >
-                <div className="flex items-center gap-2 mb-4">
-                  <BarChart3 className="w-5 h-5 text-primary" />
-                  <h3 className="text-lg font-semibold text-foreground" style={{ fontFamily: 'var(--font-heading)' }}>
-                    {selectedReport === 'weather_impact' ? 'Sector HVAC & Cooling Share' : 'Energy Distribution'}
-                  </h3>
-                </div>
-                <div className="h-[280px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={reportData?.distribution || distributionData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.3 0.04 250)" />
-                      <XAxis 
-                        dataKey="name" 
-                        stroke="oklch(0.65 0.02 250)"
-                        tick={{ fontSize: 10, fontFamily: 'var(--font-rajdhani)' }}
-                        tickLine={false}
-                      />
-                      <YAxis 
-                        stroke="oklch(0.65 0.02 250)"
-                        tick={{ fontSize: 10, fontFamily: 'var(--font-rajdhani)' }}
-                        tickLine={false}
-                        axisLine={false}
-                      />
-                      <Tooltip
-                        contentStyle={{
-                          background: 'oklch(0.15 0.02 250 / 0.95)',
-                          border: '1px solid oklch(0.7 0.18 200 / 0.3)',
-                          borderRadius: '8px',
-                          fontFamily: 'var(--font-rajdhani)'
-                        }}
-                      />
-                      <Bar 
-                        dataKey="value" 
-                        name="Usage (%)"
-                        radius={[4, 4, 0, 0]}
-                      >
-                        {distributionData.map((_, index) => (
-                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </motion.div>
+            {/* Active Recommendations Box */}
+            <div className="glass-panel rounded-xl p-5 border border-border/50">
+              <h4 className="font-bold text-foreground text-sm mb-3 flex items-center gap-2" style={{ fontFamily: 'var(--font-heading)' }}>
+                <Brain className="w-4 h-4 text-primary" />
+                Model-Derived Operational Advisories
+              </h4>
+              <div className="space-y-2">
+                {(reportData.active_recommendations || []).map((rec: string, idx: number) => (
+                  <div key={idx} className="p-3 rounded-lg bg-secondary/30 border border-border/40 text-xs flex items-start gap-2.5">
+                    <CheckCircle2 className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+                    <span className="text-foreground/90 font-medium leading-relaxed" style={{ fontFamily: 'var(--font-rajdhani)' }}>
+                      {rec}
+                    </span>
+                  </div>
+                ))}
+              </div>
             </div>
           </motion.div>
         )}

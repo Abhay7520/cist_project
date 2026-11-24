@@ -109,6 +109,8 @@ export function AlertsWidget() {
       <div className="space-y-3">
         {alerts.map((alert, index) => {
           const config = alertConfig[alert.type]
+          if (!config) return null
+
           const Icon = config.icon
 
           return (
